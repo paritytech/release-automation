@@ -1,0 +1,38 @@
+name: Release - Combined release flow
+
+on:
+  workflow_dispatch:
+    inputs:
+      weekly_version:
+        description: The version of the weekly release in the format weeklyW# that will be used as branch name and rc tag base
+        required: true
+        type: string
+
+      node_version:
+        description: Version of the polkadot node in the format X.XX.X-weeklyW# (e.g. 1.15.0-weeklyW1).
+        required: true
+        type: string
+
+jobs:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    outputs:
+      node_version: ${{ steps.validate_inputs.outputs.node_version }}
+      weekly_version: ${{ steps.validate_inputs.outputs.weekly_version }}
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
+
+      - name: Validate inputs
+        id: validate_inputs
+        run: |
+          . ./.github/scripts/common/lib.sh
+
+          if [ -n "${{ inputs.node_version }}" ]; then
+            node_version=$(filter_version_from_input "${{ inputs.node_version }}")
+            echo "node_version=${node_version}" >> $GITHUB_OUTPUT
+          fi
+
+          weekly_version=$(validate_weekly_release_tag ${{ inputs.weekly_version }})
+          echo "weekly_version=${weekly_version}" >> $GITHUB_OUTPUT
