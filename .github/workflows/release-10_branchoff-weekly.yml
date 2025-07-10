@@ -71,7 +71,7 @@ jobs:
           weekly_version=$(validate_weekly_release_tag ${{ inputs.weekly_version }})
           echo "weekly_version=${weekly_version}" >> $GITHUB_OUTPUT
 
-  create-stable-branch:
+  create-weekly-branch:
     needs: [ validate-inputs ]
     runs-on: ubuntu-latest
     environment: release
@@ -166,7 +166,7 @@ jobs:
       #       --field version=${stable_tag_base}
 
   tag-rc:
-    needs: [ validate-inputs, create-stable-branch ]
+    needs: [ validate-inputs, create-weekly-branch ]
     uses: ./.github/workflows/release-11_rc-automation.yml
     with:
       version: polkadot-${{ needs.validate-inputs.outputs.weekly_version }}
