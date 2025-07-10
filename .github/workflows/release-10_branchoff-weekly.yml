@@ -155,21 +155,20 @@ jobs:
 
           printf "[+] ℹ️ Reordering prdocs:"
 
-          VERSION=$(sed -E 's/^v([0-9]+\.[0-9]+\.[0-9]+).*$/\1/' <<< "$VERSION") #getting reed of the 'v' prefix
+          #VERSION=$(sed -E 's/^v([0-9]+\.[0-9]+\.[0-9]+).*$/\1/' <<< "$NODE_VERSION") #getting reed of the 'v' prefix
 
           # Check if there are any prdoc/pr_*.prdoc files
           shopt -s nullglob
           files=(prdoc/pr_*.prdoc)
           shopt -u nullglob
           if [ ${#files[@]} -eq 0 ]; then
-              echo " No pr_*.prdoc files found, skipping."
-              return 0
+              echo "No pr_*.prdoc files found, skipping.🤝"
+          else
+            mkdir -p "prdoc/$WEEKLY_BRANCH_NAME"
+            mv prdoc/pr_*.prdoc prdoc/$WEEKLY_BRANCH_NAME
+            git add -A
+            commit_with_message "Reordering prdocs for the release $WEEKLY_BRANCH_NAME"
           fi
-
-          mkdir -p "prdoc/$VERSION"
-          mv prdoc/pr_*.prdoc prdoc/$VERSION
-          git add -A
-          commit_with_message "Reordering prdocs for the release $VERSION"
 
           gh auth setup-git
 

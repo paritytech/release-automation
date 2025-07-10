@@ -93,14 +93,14 @@ reorder_prdocs() {
 
     printf "[+] ℹ️ Reordering prdocs:"
 
-    VERSION=$(sed -E 's/^v([0-9]+\.[0-9]+\.[0-9]+).*$/\1/' <<< "$VERSION") #getting reed of the 'v' prefix
+    #VERSION=$(sed -E 's/^v([0-9]+\.[0-9]+\.[0-9]+).*$/\1/' <<< "$VERSION") #getting reed of the 'v' prefix
 
     # Check if there are any prdoc/pr_*.prdoc files
     shopt -s nullglob
     files=(prdoc/pr_*.prdoc)
     shopt -u nullglob
     if [ ${#files[@]} -eq 0 ]; then
-        echo " No pr_*.prdoc files found, skipping."
+        echo "No pr_*.prdoc files found, skipping.🤝"
         return 0
     fi
 
