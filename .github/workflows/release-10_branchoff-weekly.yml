@@ -119,6 +119,7 @@ jobs:
           git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
 
       - name: Create or switch to weekly release branch
+        shell: bash
         run: |
           . ./.github/scripts/common/lib.sh
 
