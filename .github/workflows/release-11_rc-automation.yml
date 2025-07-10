@@ -20,7 +20,7 @@ on:
         required: true
       AWS_DEFAULT_REGION:
         required: true
-      RELEASE_BACKPORT_AUTOMATION_APP_PRIVATE_KEY:
+      RELEASE_AUTOMATION_APP_PRIVATE_KEY:
       #   required: true
       # RELEASENOTES_MATRIX_V2_ACCESS_TOKEN:
       #   required: true
@@ -51,8 +51,8 @@ jobs:
         id: generate_write_token
         uses: actions/create-github-app-token@v2
         with:
-            app-id: ${{ secrets.RELEASE_BACKPORT_AUTOMATION_APP_ID }}
-            private-key: ${{ secrets.RELEASE_BACKPORT_AUTOMATION_APP_PRIVATE_KEY }}
+            app-id: ${{ vars.RELEASE_AUTOMATION_APP_ID }}
+            private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
             owner: EgorPopelyaev
 
       - name: Checkout sources
