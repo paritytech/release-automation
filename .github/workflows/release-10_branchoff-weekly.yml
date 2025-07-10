@@ -172,7 +172,11 @@ jobs:
 
           gh auth setup-git
 
-          git push origin "$WEEKLY_BRANCH_NAME"
+          if git diff --cached --quiet; then
+            echo "No changes to push, skipping push."
+          else
+            git push origin "$WEEKLY_BRANCH_NAME"
+          fi
 
       # - name: Tag RC after branch off
       #   env:
