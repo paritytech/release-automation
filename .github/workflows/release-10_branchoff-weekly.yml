@@ -124,7 +124,8 @@ jobs:
           . ./.github/scripts/common/lib.sh
 
           # checkout_or_switch_branch "$WEEKLY_BRANCH_NAME"
-          git rev-parse --verify -q origin/"$WEEKLY_BRANCH_NAME"
+          res = $(git rev-parse --verify -q origin/"$WEEKLY_BRANCH_NAME")
+          echo "res: $res"
           if git rev-parse --verify -q origin/"$WEEKLY_BRANCH_NAME" &>/dev/null; then
             git checkout -q origin/"$WEEKLY_BRANCH_NAME"
             git pull origin "$WEEKLY_BRANCH_NAME"
