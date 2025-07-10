@@ -101,7 +101,7 @@ jobs:
           . ./.github/scripts/common/lib.sh
 
           # Get last rc tag if exists, else set it to {version}-rc1
-          version=$(validate_stable_tag ${{ needs.validate-inputs.outputs.weekly_version }})
+          version=${{ needs.validate-inputs.outputs.weekly_version }}
           echo "$version"
           echo "version=$version" >> $GITHUB_OUTPUT
 
