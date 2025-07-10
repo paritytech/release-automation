@@ -554,3 +554,17 @@ extract_pr_number_from_pr_title() {
   fi
   echo $PR_NUMBER
 }
+
+# Checkout a new branch or switch to it if the branch already exists
+#
+# input: branch (weeklyW1)
+# output: none
+checkout_or_switch_branch() {
+    branch=$1
+
+    if git rev-parse --verify -q "$branch" &>/dev/null; then
+        git checkout -q "$branch"
+    else
+        git checkout -b "$branch"
+    fi
+}

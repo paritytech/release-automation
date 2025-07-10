@@ -1,7 +1,5 @@
-# This workflow has combined functionality of branching-off a new stable release branch and tagging an RC.
-# The options to branch-off and/or tag an RC can be chosen independently by ticking the appropriate checkbox in the launching form,
-# as the branch-off happens only ones per quarter and a tagging activity done more frequently for each new RC during the release process.
-name: Release - Branch off stable branch and/or tag rc
+# This workflow has combined functionality of branching-off a new weekly release branch and tagging a weekly RC.
+name: Release - Branch off weekly branch and tag weekly rc
 
 on:
   workflow_dispatch:
@@ -15,6 +13,10 @@ on:
         description: Version of the polkadot node in the format X.XX.X-weeklyW# (e.g. 1.15.0-weeklyW1).
         type: string
 
+      is_new_weekly:
+        description: Check this box if this is a new weekly release and the weekly release branch needs to be created
+        type: boolean
+
   workflow_call:
     inputs:
       weekly_version:
@@ -25,6 +27,25 @@ on:
       node_version:
         description: Version of the polkadot node in the format X.XX.X-weeklyW# (e.g. 1.15.0-weeklyW1).
         type: string
+
+      is_new_weekly:
+        description: Check this box if this is a new weekly release and the weekly release branch needs to be created
+        type: boolean
+    secrets:
+      PGP_KMS_SIGN_COMMITS_KEY:
+        required: true
+      PGP_KMS_HASH:
+        required: true
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_DEFAULT_REGION:
+        required: true
+      RELEASE_AUTOMATION_APP_PRIVATE_KEY:
+        required: true
+      # RELEASENOTES_MATRIX_V2_ACCESS_TOKEN:
+      #   required: true
 
 jobs:
   validate-inputs:
@@ -74,11 +95,12 @@ jobs:
         with:
             app-id: ${{ vars.RELEASE_AUTOMATION_APP_ID }}
             private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
-            owner: paritytech
+            owner: EgorPopelyaev
 
       - name: Checkout sources
         uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
         with:
+          repository: EgorPopelyaev/polkadot-sdk
           ref: master
           token: ${{ steps.generate_write_token.outputs.token }}
 
@@ -96,9 +118,11 @@ jobs:
           git config --global user.email "release-team@parity.io"
           git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
 
-      - name: Create weekly release branch
+      - name: Create or switch to weekly release branch
         run: |
-          git checkout -b "$WEEKLY_BRANCH_NAME"
+          . ./.github/scripts/common/lib.sh
+
+          checkout_or_switch_branch "$WEEKLY_BRANCH_NAME"
           git show-ref "$WEEKLY_BRANCH_NAME"
 
       - name: Bump versions, reorder prdocs and push stable branch
@@ -107,16 +131,18 @@ jobs:
         run: |
           . ./.github/scripts/release/release_lib.sh
 
-          NODE_VERSION="${{ needs.validate-inputs.outputs.node_version }}"
-          NODE_VERSION_PATTERN="\(NODE_VERSION[^=]*= \)\".*\""
-          set_version "$NODE_VERSION_PATTERN" $NODE_VERSION "polkadot/node/primitives/src/lib.rs"
-          commit_with_message "Bump node version to $NODE_VERSION in polkadot-cli"
-          set_version "$NODE_VERSION_PATTERN" $NODE_VERSION "cumulus/polkadot-omni-node/lib/src/nodes/mod.rs"
-          commit_with_message "Bump node version to $NODE_VERSION in polkadot-omni-node-lib"
+          if [ "${{ inputs.is_new_weekly }}" = true ]; then
+            NODE_VERSION="${{ needs.validate-inputs.outputs.node_version }}"
+            NODE_VERSION_PATTERN="\(NODE_VERSION[^=]*= \)\".*\""
+            set_version "$NODE_VERSION_PATTERN" $NODE_VERSION "polkadot/node/primitives/src/lib.rs"
+            commit_with_message "Bump node version to $NODE_VERSION in polkadot-cli"
+            set_version "$NODE_VERSION_PATTERN" $NODE_VERSION "cumulus/polkadot-omni-node/lib/src/nodes/mod.rs"
+            commit_with_message "Bump node version to $NODE_VERSION in polkadot-omni-node-lib"
 
-          SPEC_VERSION=$(get_spec_version $NODE_VERSION)
-          runtimes_list=$(get_filtered_runtimes_list)
-          set_spec_versions $SPEC_VERSION "${runtimes_list[@]}"
+            SPEC_VERSION=$(get_spec_version $NODE_VERSION)
+            runtimes_list=$(get_filtered_runtimes_list)
+            set_spec_versions $SPEC_VERSION "${runtimes_list[@]}"
+          fi
 
           reorder_prdocs $WEEKLY_BRANCH_NAME
 
@@ -124,23 +150,21 @@ jobs:
 
           git push origin "$WEEKLY_BRANCH_NAME"
 
-      - name: Tag RC after branch off
-        if: ${{ inputs.tag_rc }}
-        env:
-          GH_TOKEN: ${{ steps.generate_write_token.outputs.token }} # or use a PAT with workflow scope
-        run: |
-          stable_tag_base=polkadot-${{ needs.validate-inputs.outputs.stable_version }}
-          gh workflow run release-11_rc-automation.yml \
-            --repo ${{ github.repository }} \
-            --ref ${{ needs.validate-inputs.outputs.stable_version }} \
-            --field version=${stable_tag_base}
+      # - name: Tag RC after branch off
+      #   env:
+      #     GH_TOKEN: ${{ steps.generate_write_token.outputs.token }} # or use a PAT with workflow scope
+      #   run: |
+      #     stable_tag_base=polkadot-${{ needs.validate-inputs.outputs.weekly_version }}
+      #     gh workflow run release-11_rc-automation.yml \
+      #       --repo ${{ github.repository }} \
+      #       --ref ${{ needs.validate-inputs.outputs.weekly_version }} \
+      #       --field version=${stable_tag_base}
 
-  tag-rc-without-branchoff:
-    if: ${{ !inputs.is_new_stable && inputs.tag_rc }}
-    needs: [ validate-inputs ]
+  tag-rc:
+    needs: [ validate-inputs, create-stable-branch ]
     uses: ./.github/workflows/release-11_rc-automation.yml
     with:
-      version: polkadot-${{ needs.validate-inputs.outputs.stable_version }}
+      version: polkadot-${{ needs.validate-inputs.outputs.weekly_version }}
     secrets:
       PGP_KMS_SIGN_COMMITS_KEY:  ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
       PGP_KMS_HASH:  ${{ secrets.PGP_KMS_HASH }}
@@ -148,4 +172,4 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION:  ${{ secrets.AWS_DEFAULT_REGION }}
       RELEASE_AUTOMATION_APP_PRIVATE_KEY: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
-      RELEASENOTES_MATRIX_V2_ACCESS_TOKEN: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
+      # RELEASENOTES_MATRIX_V2_ACCESS_TOKEN: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}

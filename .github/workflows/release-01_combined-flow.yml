@@ -13,6 +13,10 @@ on:
         required: true
         type: string
 
+      is_new_weekly:
+        description: Check this box if this is a new weekly release and the weekly release branch needs to be created
+        type: boolean
+
 jobs:
   validate-inputs:
     runs-on: ubuntu-latest
@@ -36,3 +40,19 @@ jobs:
 
           weekly_version=$(validate_weekly_release_tag ${{ inputs.weekly_version }})
           echo "weekly_version=${weekly_version}" >> $GITHUB_OUTPUT
+
+  create-weekly-branch-and-tag:
+    needs: [ validate-inputs ]
+    uses: ./.github/workflows/release-10_branchoff-weekly.yml
+    with:
+      weekly_version: ${{ needs.validate-inputs.outputs.weekly_version }}
+      node_version: ${{ needs.validate-inputs.outputs.node_version }}
+      is_new_weekly: ${{ inputs.is_new_weekly }}
+    secrets:
+      PGP_KMS_SIGN_COMMITS_KEY:  ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
+      PGP_KMS_HASH:  ${{ secrets.PGP_KMS_HASH }}
+      AWS_ACCESS_KEY_ID:  ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION:  ${{ secrets.AWS_DEFAULT_REGION }}
+      RELEASE_AUTOMATION_APP_PRIVATE_KEY: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
+      # RELEASENOTES_MATRIX_V2_ACCESS_TOKEN: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
