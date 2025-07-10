@@ -151,7 +151,25 @@ jobs:
             set_spec_versions $SPEC_VERSION "${runtimes_list[@]}"
           fi
 
-          reorder_prdocs $WEEKLY_BRANCH_NAME
+          # reorder_prdocs $WEEKLY_BRANCH_NAME
+
+          printf "[+] ℹ️ Reordering prdocs:"
+
+          VERSION=$(sed -E 's/^v([0-9]+\.[0-9]+\.[0-9]+).*$/\1/' <<< "$VERSION") #getting reed of the 'v' prefix
+
+          # Check if there are any prdoc/pr_*.prdoc files
+          shopt -s nullglob
+          files=(prdoc/pr_*.prdoc)
+          shopt -u nullglob
+          if [ ${#files[@]} -eq 0 ]; then
+              echo " No pr_*.prdoc files found, skipping."
+              return 0
+          fi
+
+          mkdir -p "prdoc/$VERSION"
+          mv prdoc/pr_*.prdoc prdoc/$VERSION
+          git add -A
+          commit_with_message "Reordering prdocs for the release $VERSION"
 
           gh auth setup-git
 
