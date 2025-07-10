@@ -169,7 +169,7 @@ jobs:
     needs: [ validate-inputs, create-weekly-branch ]
     uses: ./.github/workflows/release-11_rc-automation.yml
     with:
-      version: polkadot-${{ needs.validate-inputs.outputs.weekly_version }}
+      weekly_version: polkadot-${{ needs.validate-inputs.outputs.weekly_version }}
     secrets:
       PGP_KMS_SIGN_COMMITS_KEY:  ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
       PGP_KMS_HASH:  ${{ secrets.PGP_KMS_HASH }}
