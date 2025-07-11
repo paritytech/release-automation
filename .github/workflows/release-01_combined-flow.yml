@@ -5,11 +5,13 @@ on:
     inputs:
       weekly_version:
         description: The version of the weekly release in the format weeklyW# that will be used as branch name and rc tag base
+        default: weeklyW1
         required: true
         type: string
 
       node_version:
         description: Version of the polkadot node in the format X.XX.X-weeklyW# (e.g. 1.15.0-weeklyW1).
+        default: 1.999.0-weeklyW1
         required: true
         type: string
 
@@ -22,12 +24,12 @@ on:
         default: all
         type: choice
         options:
+          - all
           - polkadot
           - polkadot-parachain
           - polkadot-omni-node
           - frame-omni-bencher
           - chain-spec-builder
-          - all
 
 jobs:
   validate-inputs:

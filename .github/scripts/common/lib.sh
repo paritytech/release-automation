@@ -497,7 +497,7 @@ function get_polkadot_node_version_from_code() {
 
 validate_weekly_release_tag() {
     tag="$1"
-    pattern="^(polkadot-)?weeklyW[0-9]+$"
+    pattern="^(polkadot-)?weeklyW[0-9]+(-rc[0-9]+)?$"
 
     if [[ $tag =~ $pattern ]]; then
         echo $tag
