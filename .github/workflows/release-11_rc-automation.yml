@@ -1,4 +1,4 @@
-name: Release - RC tagging automation
+name: Release - Tag weekly RC
 on:
   workflow_dispatch:
     inputs:
@@ -24,7 +24,9 @@ on:
       #   required: true
       # RELEASENOTES_MATRIX_V2_ACCESS_TOKEN:
       #   required: true
-
+    outputs:
+      rc_tag:
+        value: ${{ jobs.tag_rc.outputs.rc_tag }}
 jobs:
 
   validate-inputs:
@@ -57,6 +59,8 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+    outputs:
+      rc_tag: ${{ steps.compute_tag.outputs.new_tag }}
 
     steps:
       - name: Install pgpkkms

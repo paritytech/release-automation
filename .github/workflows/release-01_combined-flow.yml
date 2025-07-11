@@ -17,6 +17,18 @@ on:
         description: Check this box if this is a new weekly release and the weekly release branch needs to be created
         type: boolean
 
+      binary:
+        description: Binary to be build for the release
+        default: all
+        type: choice
+        options:
+          - polkadot
+          - polkadot-parachain
+          - polkadot-omni-node
+          - frame-omni-bencher
+          - chain-spec-builder
+          - all
+
 jobs:
   validate-inputs:
     runs-on: ubuntu-latest
@@ -41,7 +53,8 @@ jobs:
           weekly_version=$(validate_weekly_release_tag ${{ inputs.weekly_version }})
           echo "weekly_version=${weekly_version}" >> $GITHUB_OUTPUT
 
-  create-weekly-branch-and-tag:
+  create-weekly-branch:
+    if: ${{ inputs.is_new_weekly }}
     needs: [ validate-inputs ]
     uses: ./.github/workflows/release-10_branchoff-weekly.yml
     with:
@@ -56,3 +69,28 @@ jobs:
       AWS_DEFAULT_REGION:  ${{ secrets.AWS_DEFAULT_REGION }}
       RELEASE_AUTOMATION_APP_PRIVATE_KEY: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
       # RELEASENOTES_MATRIX_V2_ACCESS_TOKEN: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
+
+  tag-weekly-rc:
+    needs: [ create-weekly-branch ]
+    uses: ./.github/workflows/release-11_rc-automation.yml
+    with:
+      weekly_version: polkadot-${{ needs.validate-inputs.outputs.weekly_version }}
+    secrets:
+      PGP_KMS_SIGN_COMMITS_KEY:  ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
+      PGP_KMS_HASH:  ${{ secrets.PGP_KMS_HASH }}
+      AWS_ACCESS_KEY_ID:  ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION:  ${{ secrets.AWS_DEFAULT_REGION }}
+      RELEASE_AUTOMATION_APP_PRIVATE_KEY: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
+      # RELEASENOTES_MATRIX_V2_ACCESS_TOKEN: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
+
+  build-weekly-rc:
+    needs: [ tag-weekly-rc ]
+    uses: ./.github/workflows/release-20_build-rc.yml
+    with:
+      binary: ${{ inputs.binary }}
+      release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
