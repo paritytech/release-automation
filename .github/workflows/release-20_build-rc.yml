@@ -7,7 +7,7 @@ on:
         description: Binary to be build for the release
         default: all
         type: string
-      release_tag:
+      weekly_release_tag:
         description: Tag matching the actual release candidate with the format polkadot-weeklyW#-rcX or polkadot-weeklyW#(-X)
         type: string
   workflow_call:
@@ -16,7 +16,7 @@ on:
         description: Binary to be build for the release
         default: all
         type: string
-      release_tag:
+      weekly_release_tag:
         description: Tag matching the actual release candidate with the format polkadot-weeklyW#-rcX or polkadot-weeklyW#(-X)
         type: string
 
@@ -24,7 +24,7 @@ jobs:
   validate-inputs:
     runs-on: ubuntu-latest
     outputs:
-        release_tag: ${{ steps.validate_inputs.outputs.release_tag }}
+        weekly_release_tag: ${{ steps.validate_inputs.outputs.weekly_release_tag }}
 
     steps:
       - name: Checkout sources
@@ -35,8 +35,8 @@ jobs:
         run: |
           . ./.github/scripts/common/lib.sh
 
-          RELEASE_TAG=$(validate_weekly_release_tag ${{ inputs.release_tag }})
-          echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
+          RELEASE_TAG=$(validate_weekly_release_tag ${{ inputs.weekly_release_tag }})
+          echo "weekly_release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
 
   build-polkadot-binary:
     needs: [validate-inputs]
@@ -45,7 +45,7 @@ jobs:
     with:
       binary: '["polkadot", "polkadot-prepare-worker", "polkadot-execute-worker"]'
       package: polkadot
-      release_tag: ${{ needs.validate-inputs.outputs.release_tag }}
+      weekly_release_tag: ${{ needs.validate-inputs.outputs.weekly_release_tag }}
       target: x86_64-unknown-linux-gnu
     # secrets:
     #   PGP_KMS_KEY:  ${{ secrets.PGP_KMS_KEY }}
@@ -67,7 +67,7 @@ jobs:
     with:
       binary: '["polkadot-parachain"]'
       package: "polkadot-parachain-bin"
-      release_tag: ${{ needs.validate-inputs.outputs.release_tag }}
+      weekly_release_tag: ${{ needs.validate-inputs.outputs.weekly_release_tag }}
       target: x86_64-unknown-linux-gnu
     # secrets:
     #   PGP_KMS_KEY:  ${{ secrets.PGP_KMS_KEY }}
@@ -89,7 +89,7 @@ jobs:
     with:
       binary: '["polkadot-omni-node"]'
       package: "polkadot-omni-node"
-      release_tag: ${{ needs.validate-inputs.outputs.release_tag }}
+      weekly_release_tag: ${{ needs.validate-inputs.outputs.weekly_release_tag }}
       target: x86_64-unknown-linux-gnu
       features: runtime-benchmarks
     # secrets:
@@ -112,7 +112,7 @@ jobs:
   #   with:
   #     binary: '["frame-omni-bencher"]'
   #     package: "frame-omni-bencher"
-  #     release_tag: ${{ needs.validate-inputs.outputs.release_tag }}
+  #     weekly_release_tag: ${{ needs.validate-inputs.outputs.weekly_release_tag }}
   #     target: x86_64-unknown-linux-gnu
   #   secrets:
   #     PGP_KMS_KEY:  ${{ secrets.PGP_KMS_KEY }}
@@ -134,7 +134,7 @@ jobs:
   #   with:
   #     binary: '["chain-spec-builder"]'
   #     package: staging-chain-spec-builder
-  #     release_tag: ${{ needs.validate-inputs.outputs.release_tag }}
+  #     weekly_release_tag: ${{ needs.validate-inputs.outputs.weekly_release_tag }}
   #     target: x86_64-unknown-linux-gnu
   #   secrets:
   #     PGP_KMS_KEY:  ${{ secrets.PGP_KMS_KEY }}
@@ -156,7 +156,7 @@ jobs:
   #   with:
   #     binary: '["polkadot", "polkadot-prepare-worker", "polkadot-execute-worker"]'
   #     package: polkadot
-  #     release_tag: ${{ needs.validate-inputs.outputs.release_tag }}
+  #     weekly_release_tag: ${{ needs.validate-inputs.outputs.weekly_release_tag }}
   #     target: aarch64-apple-darwin
   #   secrets:
   #     PGP_KMS_KEY:  ${{ secrets.PGP_KMS_KEY }}
@@ -178,7 +178,7 @@ jobs:
   #   with:
   #     binary: '["polkadot-parachain"]'
   #     package: polkadot-parachain-bin
-  #     release_tag: ${{ needs.validate-inputs.outputs.release_tag }}
+  #     weekly_release_tag: ${{ needs.validate-inputs.outputs.weekly_release_tag }}
   #     target: aarch64-apple-darwin
   #   secrets:
   #     PGP_KMS_KEY:  ${{ secrets.PGP_KMS_KEY }}
@@ -200,7 +200,7 @@ jobs:
   #   with:
   #     binary: '["polkadot-omni-node"]'
   #     package: polkadot-omni-node
-  #     release_tag: ${{ needs.validate-inputs.outputs.release_tag }}
+  #     weekly_release_tag: ${{ needs.validate-inputs.outputs.weekly_release_tag }}
   #     target: aarch64-apple-darwin
   #     features: runtime-benchmarks
   #   secrets:
@@ -223,7 +223,7 @@ jobs:
   #   with:
   #     binary: '["frame-omni-bencher"]'
   #     package: frame-omni-bencher
-  #     release_tag: ${{ needs.validate-inputs.outputs.release_tag }}
+  #     weekly_release_tag: ${{ needs.validate-inputs.outputs.weekly_release_tag }}
   #     target: aarch64-apple-darwin
   #   secrets:
   #     PGP_KMS_KEY:  ${{ secrets.PGP_KMS_KEY }}
@@ -245,7 +245,7 @@ jobs:
   #   with:
   #     binary: '["chain-spec-builder"]'
   #     package: staging-chain-spec-builder
-  #     release_tag: ${{ needs.validate-inputs.outputs.release_tag }}
+  #     weekly_release_tag: ${{ needs.validate-inputs.outputs.weekly_release_tag }}
   #     target: aarch64-apple-darwin
   #   secrets:
   #     PGP_KMS_KEY:  ${{ secrets.PGP_KMS_KEY }}

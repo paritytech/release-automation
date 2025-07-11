@@ -30,6 +30,24 @@ on:
           - polkadot-omni-node
           - frame-omni-bencher
           - chain-spec-builder
+      chain:
+        description: The chain to use
+        default: all
+        required: true
+        type: choice
+        options:
+          - all
+          - westend
+          - asset-hub-westend
+          - bridge-hub-westend
+          - collectives-westend
+          - coretime-westend
+          - glutton-westend
+          - people-westend
+      runtime_dir:
+        description: The runtime_dir to be used (this parameter is optional and needed only in case of the single runtime build, set it accordingly to the runtime you want to build)
+        default: polkadot/runtime/westend
+        type: string
 
 jobs:
   validate-inputs:
@@ -90,8 +108,16 @@ jobs:
     uses: ./.github/workflows/release-20_build-rc.yml
     with:
       binary: ${{ inputs.binary }}
-      release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
+      weekly_release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
     permissions:
       id-token: write
       attestations: write
       contents: read
+
+  build-runtimes:
+    needs: [ tag-weekly-rc ]
+    uses: ./.github/workflows/release-21_build-runtimes.yml
+    with:
+      chain: ${{ inputs.chain }}
+      runtime_dir: ${{ inputs.runtime_dir }}
+      weekly_release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
