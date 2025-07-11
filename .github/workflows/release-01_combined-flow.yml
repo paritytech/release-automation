@@ -53,8 +53,7 @@ jobs:
           weekly_version=$(validate_weekly_release_tag ${{ inputs.weekly_version }})
           echo "weekly_version=${weekly_version}" >> $GITHUB_OUTPUT
 
-  create-weekly-branch:
-    if: ${{ inputs.is_new_weekly }}
+  create-or-update-weekly-branch:
     needs: [ validate-inputs ]
     uses: ./.github/workflows/release-10_branchoff-weekly.yml
     with:
@@ -71,7 +70,7 @@ jobs:
       # RELEASENOTES_MATRIX_V2_ACCESS_TOKEN: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
 
   tag-weekly-rc:
-    needs: [ create-weekly-branch ]
+    needs: [ create-or-update-weekly-branch ]
     uses: ./.github/workflows/release-11_rc-automation.yml
     with:
       weekly_version: polkadot-${{ needs.validate-inputs.outputs.weekly_version }}
