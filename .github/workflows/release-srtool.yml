@@ -110,10 +110,10 @@ jobs:
           echo "Compact Runtime: ${{ steps.srtool_build.outputs.wasm }}"
           echo "Compressed Runtime: ${{ steps.srtool_build.outputs.wasm_compressed }}"
 
-      - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@db473fddc028af60658334401dc6fa3ffd8669fd # v2.3.0
-        with:
-          subject-path:  ${{ steps.srtool_build.outputs.wasm }}
+      # - name: Generate artifact attestation
+      #   uses: actions/attest-build-provenance@db473fddc028af60658334401dc6fa3ffd8669fd # v2.3.0
+      #   with:
+      #     subject-path:  ${{ steps.srtool_build.outputs.wasm }}
 
       # We now get extra information thanks to subwasm
       - name: Install subwasm

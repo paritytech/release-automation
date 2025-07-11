@@ -125,10 +125,10 @@ jobs:
           git config --global --add safe.directory "${GITHUB_WORKSPACE}" #avoid "detected dubious ownership" error
           ./.github/scripts/release/build-linux-release.sh ${{ matrix.binaries }} ${{ inputs.package }} ${{ inputs.features }}
 
-      - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@db473fddc028af60658334401dc6fa3ffd8669fd # v2.3.0
-        with:
-          subject-path: /artifacts/${{ matrix.binaries }}/${{ matrix.binaries }}
+      # - name: Generate artifact attestation
+      #   uses: actions/attest-build-provenance@db473fddc028af60658334401dc6fa3ffd8669fd # v2.3.0
+      #   with:
+      #     subject-path: /artifacts/${{ matrix.binaries }}/${{ matrix.binaries }}
 
       # - name: Sign artifacts
       #   working-directory: /artifacts/${{ matrix.binaries }}
