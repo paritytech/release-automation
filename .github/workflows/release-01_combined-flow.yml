@@ -70,7 +70,7 @@ jobs:
       # RELEASENOTES_MATRIX_V2_ACCESS_TOKEN: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
 
   tag-weekly-rc:
-    needs: [ create-or-update-weekly-branch ]
+    needs: [ validate-inputs, create-or-update-weekly-branch ]
     uses: ./.github/workflows/release-11_rc-automation.yml
     with:
       weekly_version: polkadot-${{ needs.validate-inputs.outputs.weekly_version }}
