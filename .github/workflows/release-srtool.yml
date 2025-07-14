@@ -38,7 +38,7 @@ jobs:
         - name: Checkout
           uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
           with:
-            repository: paritytech/polkadot-sdk
+            repository: EgorPopelyaev/polkadot-sdk
             ref: ${{ inputs.weekly_release_tag }}
             fetch-depth: 0
 
@@ -89,7 +89,7 @@ jobs:
     steps:
       - uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
         with:
-          repository: paritytech/polkadot-sdk
+          repository: EgorPopelyaev/polkadot-sdk
           ref: ${{ inputs.weekly_release_tag }}
           fetch-depth: 0
 

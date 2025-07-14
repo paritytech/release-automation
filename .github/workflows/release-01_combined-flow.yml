@@ -121,3 +121,10 @@ jobs:
       chain: ${{ inputs.chain }}
       runtime_dir: ${{ inputs.runtime_dir }}
       weekly_release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
+
+  # build-weekly-rc-docker-images:
+  #   needs: [ tag-weekly-rc, build-weekly-rc ]
+  #   uses: ./.github/workflows/release-50_publish-docker.yml
+  #   with:
+  #     binary: ${{ inputs.binary }}
+  #     weekly_release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
