@@ -202,8 +202,9 @@ jobs:
           GITHUB_TOKEN: ${{ steps.generate_write_token.outputs.token }}
         run: |
           mkdir -p ${{ github.workspace}}/release-artifacts/
-          gh run download ${{ github.event.inputs.build_run_id }} --repo EgorPopelyaev/release-automation --dir ${{ github.workspace}}/release-artifacts
-          ls -la ${{ github.workspace}}/release-artifacts
+          gh run download ${{ github.event.inputs.build_run_id }} --repo EgorPopelyaev/release-automation --dir ${{ github.workspace}}/release-artifacts -p polkadot*
+          find ${{ github.workspace}}/release-artifacts -mindepth 2 -type f -exec mv -t ${{ github.workspace}}/release-artifacts {} +
+          find ${{ github.workspace}}/release-artifacts -mindepth 1 -type d -empty -delete
 
       - name: Download artifacts
         if: ${{ github.event_name == 'workflow_call' }}
@@ -211,6 +212,7 @@ jobs:
         with:
           pattern: polkadot*
           path: release-artifacts
+          merge-multiple: true
 
       - name: Check sha256 ${{ matrix.binary }}
         # if: ${{ inputs.binary == 'polkadot-parachain' || inputs.binary == 'polkadot' }}
