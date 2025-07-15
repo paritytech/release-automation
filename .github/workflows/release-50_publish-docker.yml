@@ -136,7 +136,7 @@ jobs:
               echo $MATRIX
               echo "binaries=$MATRIX" >> $GITHUB_OUTPUT
             else
-              MATRIX='["$BINARY"]'
+              MATRIX='["${{env.BINARY}}"]'
               echo "binaries=$MATRIX" >> $GITHUB_OUTPUT
             fi
 
