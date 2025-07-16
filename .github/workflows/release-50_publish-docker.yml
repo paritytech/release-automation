@@ -19,9 +19,9 @@ on:
         type: choice
         options:
           - polkadot
-          - polkadot-omni-node
+          # - polkadot-omni-node
           - polkadot-parachain
-          - chain-spec-builder
+          # - chain-spec-builder
 
       registry:
         description: Container registry
