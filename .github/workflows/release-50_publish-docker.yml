@@ -254,7 +254,7 @@ jobs:
           echo "release=$(echo ${{ needs.validate-inputs.outputs.version }})" >> $GITHUB_OUTPUT
 
           weekly_tag="${{ needs.validate-inputs.outputs.weekly_release_tag }}"
-          docker_tag="${weekly_tag#polkadot}"
+          docker_tag="${weekly_tag#polkadot-}"
           echo "tag=$docker_tag" >> $GITHUB_OUTPUT
 
       # - name: Fetch release tags
