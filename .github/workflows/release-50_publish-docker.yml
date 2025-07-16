@@ -202,7 +202,7 @@ jobs:
           GITHUB_TOKEN: ${{ steps.generate_write_token.outputs.token }}
         run: |
           mkdir -p ${{ github.workspace}}/release-artifacts/
-          gh run download ${{ github.event.inputs.build_run_id }} --repo EgorPopelyaev/release-automation --dir ${{ github.workspace}}/release-artifacts -p polkadot*
+          gh run download ${{ github.event.inputs.build_run_id }} --repo EgorPopelyaev/release-automation --dir ${{ github.workspace}}/release-artifacts -p "polkadot*"
           find ${{ github.workspace}}/release-artifacts -mindepth 2 -type f -exec mv -t ${{ github.workspace}}/release-artifacts {} +
           find ${{ github.workspace}}/release-artifacts -mindepth 1 -type d -empty -delete
 
