@@ -82,28 +82,28 @@ jobs:
       attestations: write
       contents: read
 
-  build-polkadot-omni-node-binary:
-    needs: [validate-inputs]
-    if: ${{ inputs.binary == 'polkadot-omni-node' || inputs.binary == 'all' }}
-    uses: "./.github/workflows/release-reusable-rc-build.yml"
-    with:
-      binary: '["polkadot-omni-node"]'
-      package: "polkadot-omni-node"
-      weekly_release_tag: ${{ needs.validate-inputs.outputs.weekly_release_tag }}
-      target: x86_64-unknown-linux-gnu
-      features: runtime-benchmarks
-    # secrets:
-    #   PGP_KMS_KEY:  ${{ secrets.PGP_KMS_KEY }}
-    #   PGP_KMS_HASH:  ${{ secrets.PGP_KMS_HASH }}
-    #   AWS_ACCESS_KEY_ID:  ${{ secrets.AWS_ACCESS_KEY_ID }}
-    #   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    #   AWS_DEFAULT_REGION:  ${{ secrets.AWS_DEFAULT_REGION }}
-    #   AWS_RELEASE_ACCESS_KEY_ID: ${{ secrets.AWS_RELEASE_ACCESS_KEY_ID }}
-    #   AWS_RELEASE_SECRET_ACCESS_KEY: ${{ secrets.AWS_RELEASE_SECRET_ACCESS_KEY }}
-    permissions:
-      id-token: write
-      attestations: write
-      contents: read
+  # build-polkadot-omni-node-binary:
+  #   needs: [validate-inputs]
+  #   if: ${{ inputs.binary == 'polkadot-omni-node' || inputs.binary == 'all' }}
+  #   uses: "./.github/workflows/release-reusable-rc-build.yml"
+  #   with:
+  #     binary: '["polkadot-omni-node"]'
+  #     package: "polkadot-omni-node"
+  #     weekly_release_tag: ${{ needs.validate-inputs.outputs.weekly_release_tag }}
+  #     target: x86_64-unknown-linux-gnu
+  #     features: runtime-benchmarks
+  #   # secrets:
+  #   #   PGP_KMS_KEY:  ${{ secrets.PGP_KMS_KEY }}
+  #   #   PGP_KMS_HASH:  ${{ secrets.PGP_KMS_HASH }}
+  #   #   AWS_ACCESS_KEY_ID:  ${{ secrets.AWS_ACCESS_KEY_ID }}
+  #   #   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  #   #   AWS_DEFAULT_REGION:  ${{ secrets.AWS_DEFAULT_REGION }}
+  #   #   AWS_RELEASE_ACCESS_KEY_ID: ${{ secrets.AWS_RELEASE_ACCESS_KEY_ID }}
+  #   #   AWS_RELEASE_SECRET_ACCESS_KEY: ${{ secrets.AWS_RELEASE_SECRET_ACCESS_KEY }}
+  #   permissions:
+  #     id-token: write
+  #     attestations: write
+  #     contents: read
 
   # build-frame-omni-bencher-binary:
   #   needs: [validate-inputs]

@@ -444,7 +444,7 @@ function find_runtimes() {
 # output: none
 filter_version_from_input() {
   version=$1
-  regex="^(v)?[0-9]+\.[0-9]+\.[0-9]+(-weeklyW[0-9]+)?$"
+  regex="^(v)?[0-9]+\.[0-9]+\.[0-9]+(-weeklyW[0-9]+)?(-rc[0-9]+)?$"
 
   if [[ $version =~ $regex ]]; then
       echo $version
@@ -507,13 +507,13 @@ validate_weekly_release_tag() {
     fi
 }
 
-# Prepare docker stable tag form the polkadot stable tag
+# Prepare docker weekly tag form the polkadot weekly tag
 #
-# input: tag (polkaodot-stableYYMM(-X) or polkadot-stableYYMM(-X)-rcX)
-# output: stableYYMM(-X) or stableYYMM(-X)-rcX
-prepare_docker_stable_tag() {
+# input: tag (polkaodot-weeklyW#-rcX)
+# output: weeklyW#-rcX
+prepare_docker_weekly_tag() {
   tag="$1"
-  if [[ "$tag" =~ stable[0-9]{4}(-[0-9]+)?(-rc[0-9]+)? ]]; then
+  if [[ "$tag" =~ weeklyW[0-9]+(-rc[0-9]+)? ]]; then
       echo "${BASH_REMATCH[0]}"
   else
       echo "Tag is invalid: $tag"

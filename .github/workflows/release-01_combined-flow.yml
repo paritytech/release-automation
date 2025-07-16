@@ -16,7 +16,7 @@ on:
         type: string
 
       is_new_weekly:
-        description: Check this box if this is a new weekly release and the weekly release branch needs to be created
+        description: ⚠️ Check this box if this is a new weekly release and the weekly release branch needs to be created
         type: boolean
 
       binary:
@@ -27,7 +27,7 @@ on:
           - all
           - polkadot
           - polkadot-parachain
-          - polkadot-omni-node
+          # - polkadot-omni-node
           # - frame-omni-bencher
           # - chain-spec-builder
       chain:
@@ -47,7 +47,15 @@ on:
       runtime_dir:
         description: The runtime dir to be used (⚠️ this parameter is optional and needed only in case of the single runtime build, set it accordingly to the runtime you want to build)
         default: polkadot/runtime/westend
-        type: string
+        type: choice
+        options:
+          - polkadot/runtime/westend
+          - cumulus/parachains/runtimes/assets/asset-hub-westend
+          - cumulus/parachains/runtimes/bridge-hubs/bridge-hub-westend
+          - cumulus/parachains/runtimes/collectives/collectives-westend
+          - cumulus/parachains/runtimes/coretime/coretime-westend
+          - cumulus/parachains/runtimes/glutton/glutton-westend
+          - cumulus/parachains/runtimes/people/people-westend
 
 jobs:
   validate-inputs:
@@ -93,7 +101,7 @@ jobs:
     needs: [ validate-inputs, create-or-update-weekly-branch ]
     uses: ./.github/workflows/release-11_rc-automation.yml
     with:
-      weekly_version: polkadot-${{ needs.validate-inputs.outputs.weekly_version }}
+      weekly_version: ${{ needs.validate-inputs.outputs.weekly_version }}
     secrets:
       PGP_KMS_SIGN_COMMITS_KEY:  ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
       PGP_KMS_HASH:  ${{ secrets.PGP_KMS_HASH }}
@@ -121,3 +129,13 @@ jobs:
       chain: ${{ inputs.chain }}
       runtime_dir: ${{ inputs.runtime_dir }}
       weekly_release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
+
+  build-weekly-rc-docker-images:
+    needs: [ tag-weekly-rc, build-weekly-rc ]
+    uses: ./.github/workflows/release-50_publish-docker.yml
+    with:
+      binary: ${{ inputs.binary }}
+      weekly_release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
+      registry: docker.io
+      owner: parity
+      version: ${{ inputs.node_version }}

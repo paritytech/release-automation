@@ -131,7 +131,7 @@ jobs:
           fi
           git show-ref "$WEEKLY_BRANCH_NAME"
 
-      - name: Bump versions, reorder prdocs and push stable branch
+      - name: Bump versions, reorder prdocs and push weekly branch
         env:
           GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
         run: |
@@ -152,17 +152,16 @@ jobs:
 
           # reorder_prdocs $WEEKLY_BRANCH_NAME
 
-          printf "[+] ℹ️ Reordering prdocs:"
-
           #VERSION=$(sed -E 's/^v([0-9]+\.[0-9]+\.[0-9]+).*$/\1/' <<< "$NODE_VERSION") #getting reed of the 'v' prefix
 
-          # Check if there are any prdoc/pr_*.prdoc files
+          # Check if there are any pr_*.prdoc files in the root directory
           shopt -s nullglob
           files=(prdoc/pr_*.prdoc)
           shopt -u nullglob
           if [ ${#files[@]} -eq 0 ]; then
               echo "No pr_*.prdoc files found, skipping.🤝"
           else
+            echo "[+] ℹ️ Reordering prdocs:"
             mkdir -p "prdoc/$WEEKLY_BRANCH_NAME"
             mv prdoc/pr_*.prdoc prdoc/$WEEKLY_BRANCH_NAME
             git add -A
@@ -170,10 +169,15 @@ jobs:
           fi
 
           gh auth setup-git
-
-          if git diff --cached --quiet; then
-            echo "No changes to push, skipping push."
+          if git rev-parse --verify -q origin/"$WEEKLY_BRANCH_NAME" >/dev/null; then
+            # Remote branch exists, check for new commits
+            if git rev-list origin/"$WEEKLY_BRANCH_NAME"..HEAD --count | grep -qv '^0$'; then
+              git push origin "$WEEKLY_BRANCH_NAME"
+            else
+              echo "No new commits to push, skipping push."
+            fi
           else
+            # Remote branch does not exist, push it
             git push origin "$WEEKLY_BRANCH_NAME"
           fi
 
