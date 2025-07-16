@@ -16,7 +16,7 @@ on:
         type: string
 
       is_new_weekly:
-        description: Check this box if this is a new weekly release and the weekly release branch needs to be created
+        description: ⚠️ Check this box if this is a new weekly release and the weekly release branch needs to be created
         type: boolean
 
       binary:
@@ -47,7 +47,15 @@ on:
       runtime_dir:
         description: The runtime dir to be used (⚠️ this parameter is optional and needed only in case of the single runtime build, set it accordingly to the runtime you want to build)
         default: polkadot/runtime/westend
-        type: string
+        type: choice
+        options:
+          - polkadot/runtime/westend
+          - cumulus/parachains/runtimes/assets/asset-hub-westend
+          - cumulus/parachains/runtimes/bridge-hubs/bridge-hub-westend
+          - cumulus/parachains/runtimes/collectives/collectives-westend
+          - cumulus/parachains/runtimes/coretime/coretime-westend
+          - cumulus/parachains/runtimes/glutton/glutton-westend
+          - cumulus/parachains/runtimes/people/people-westend
 
 jobs:
   validate-inputs:
@@ -129,5 +137,5 @@ jobs:
       binary: ${{ inputs.binary }}
       weekly_release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
       registry: docker.io
-      owner: EgorPopelyaev
+      owner: parity
       version: ${{ inputs.node_version }}

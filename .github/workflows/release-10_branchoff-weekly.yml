@@ -94,12 +94,12 @@ jobs:
         with:
             app-id: ${{ vars.RELEASE_AUTOMATION_APP_ID }}
             private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
-            owner: EgorPopelyaev
+            owner: paritytech
 
       - name: Checkout sources
         uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
         with:
-          repository: EgorPopelyaev/polkadot-sdk
+          repository: paritytech/polkadot-sdk
           ref: master
           token: ${{ steps.generate_write_token.outputs.token }}
 
@@ -131,7 +131,7 @@ jobs:
           fi
           git show-ref "$WEEKLY_BRANCH_NAME"
 
-      - name: Bump versions, reorder prdocs and push stable branch
+      - name: Bump versions, reorder prdocs and push weekly branch
         env:
           GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
         run: |
