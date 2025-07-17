@@ -139,3 +139,5 @@ jobs:
       registry: docker.io
       owner: parity
       version: ${{ inputs.node_version }}
+    secrets:
+       RELEASE_AUTOMATION_APP_PRIVATE_KEY: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}

@@ -82,6 +82,9 @@ on:
         description: Tag matching the actual weekly release version in the format polkadot-weeklyW#
         required: true
         type: string
+    secrets:
+      RELEASE_AUTOMATION_APP_PRIVATE_KEY:
+        required: true
 
 permissions:
   contents: write
