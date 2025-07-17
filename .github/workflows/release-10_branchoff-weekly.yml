@@ -83,9 +83,9 @@ jobs:
       WEEKLY_BRANCH_NAME: ${{ needs.validate-inputs.outputs.weekly_version }}
 
     steps:
-      - name: Install python deps
+      - name: Install python deps and gh
         run: |
-          sudo apt-get update && sudo apt-get install -y python3-pip python3
+          sudo apt-get update && sudo apt-get install -y python3-pip python3 gh
       - name: Install pgpkkms
         run: |
           # Install pgpkms that is used to sign commits
