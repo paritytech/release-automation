@@ -53,7 +53,7 @@ permissions:
 jobs:
 
   setup:
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     strategy:
       matrix:
         binaries: ${{ fromJSON(inputs.binary) }}
@@ -79,7 +79,7 @@ jobs:
           if [[ "${{ matrix.binaries }}" == "polkadot-parachain" ]]; then
             echo "RUNNER=parity-large" >> $GITHUB_OUTPUT
           else
-            echo "RUNNER=ubuntu-latest" >> $GITHUB_OUTPUT
+            echo "RUNNER=parity-default" >> $GITHUB_OUTPUT
           fi
 
   build-rc:
@@ -276,7 +276,7 @@ jobs:
   # build-polkadot-deb-package:
   #   if: ${{ inputs.package == 'polkadot' && inputs.target == 'x86_64-unknown-linux-gnu' }}
   #   needs: [build-rc]
-  #   runs-on: ubuntu-latest
+  #   runs-on: parity-default
 
   #   steps:
   #   - name: Checkout sources

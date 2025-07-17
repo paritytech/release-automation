@@ -45,7 +45,7 @@ on:
 jobs:
 
   setup:
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     strategy:
       matrix:
         binaries: ${{ fromJSON(inputs.binaries) }}
@@ -67,7 +67,7 @@ jobs:
           if [[ "${{ matrix.binaries }}" == "polkadot-parachain" ]]; then
             echo "RUNNER=parity-large" >> $GITHUB_OUTPUT
           else
-            echo "RUNNER=ubuntu-latest" >> $GITHUB_OUTPUT
+            echo "RUNNER=parity-default" >> $GITHUB_OUTPUT
           fi
 
   build:

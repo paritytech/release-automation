@@ -30,7 +30,7 @@ on:
 jobs:
 
   validate-inputs:
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     outputs:
       weekly_version: ${{ steps.validate_inputs.outputs.weekly_version }}
 
@@ -46,7 +46,7 @@ jobs:
           echo "weekly_version=${weekly_version}" >> $GITHUB_OUTPUT
   tag_rc:
     needs: [ validate-inputs ]
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     strategy:
       matrix:
         channel:

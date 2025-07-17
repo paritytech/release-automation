@@ -51,7 +51,7 @@ on:
 
 jobs:
   validate-inputs:
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     outputs:
         weekly_release_tag: ${{ steps.validate_inputs.outputs.weekly_release_tag }}
     steps:
@@ -83,7 +83,7 @@ jobs:
 
   # trigger-release-draft:
   #   needs: [build-runtimes, validate-inputs]
-  #   runs-on: ubuntu-latest
+  #   runs-on: parity-default
   #   steps:
   #     - name: Generate content write token for the release automation
   #       id: generate_write_token

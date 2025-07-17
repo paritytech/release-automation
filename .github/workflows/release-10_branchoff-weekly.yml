@@ -48,7 +48,7 @@ on:
 
 jobs:
   validate-inputs:
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     outputs:
       node_version: ${{ steps.validate_inputs.outputs.node_version }}
       weekly_version: ${{ steps.validate_inputs.outputs.weekly_version }}
@@ -72,7 +72,7 @@ jobs:
 
   create-weekly-branch:
     needs: [ validate-inputs ]
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     environment: release
     env:
       PGP_KMS_KEY: ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}

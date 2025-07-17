@@ -59,7 +59,7 @@ on:
 
 jobs:
   validate-inputs:
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     outputs:
       node_version: ${{ steps.validate_inputs.outputs.node_version }}
       weekly_version: ${{ steps.validate_inputs.outputs.weekly_version }}

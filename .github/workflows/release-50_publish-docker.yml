@@ -100,7 +100,7 @@ env:
 
 jobs:
   validate-inputs:
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     outputs:
       version: ${{ steps.validate_inputs.outputs.VERSION }}
       weekly_release_tag: ${{ steps.validate_inputs.outputs.weekly_release_tag }}
@@ -121,7 +121,7 @@ jobs:
           echo "weekly_release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
 
   set-up-binaries:
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     needs: [ validate-inputs ]
     outputs:
       binaries: ${{ steps.set_up_binaries.outputs.binaries }}
@@ -146,7 +146,7 @@ jobs:
 
   # fetch-artifacts: # this job will be triggered for the polkadot-parachain rc and release or polkadot rc image build
   #   if: ${{ inputs.binary == 'polkadot-omni-node' || inputs.binary == 'polkadot-parachain' || inputs.binary == 'chain-spec-builder' || inputs.image_type == 'rc' }}
-  #   runs-on: ubuntu-latest
+  #   runs-on: parity-default
   #   needs: [ validate-inputs ]
 
   #   steps:
@@ -176,7 +176,7 @@ jobs:
 
   build-container: # this job will be triggered for the polkadot-parachain rc and release or polkadot rc image build
     # if: ${{ inputs.binary == 'polkadot-omni-node' || inputs.binary == 'polkadot-parachain' || inputs.binary == 'chain-spec-builder' || inputs.image_type == 'rc' }}
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     # needs: [ fetch-artifacts, validate-inputs ]
     needs: [ validate-inputs, set-up-binaries ]
     environment: release
@@ -349,7 +349,7 @@ jobs:
 
   # fetch-latest-debian-package-version: # this job will be triggered for polkadot release build
   #   if: ${{ inputs.binary == 'polkadot' && inputs.image_type == 'release' }}
-  #   runs-on: ubuntu-latest
+  #   runs-on: parity-default
   #   outputs:
   #     polkadot_apt_version: ${{ steps.fetch-latest-apt.outputs.polkadot_apt_version }}
   #     polkadot_container_tag: ${{ steps.fetch-latest-apt.outputs.polkadot_container_tag }}
@@ -371,7 +371,7 @@ jobs:
 
   # build-polkadot-release-container: # this job will be triggered for polkadot release build
   #   if: ${{ inputs.binary == 'polkadot' && inputs.image_type == 'release' }}
-  #   runs-on: ubuntu-latest
+  #   runs-on: parity-default
   #   needs: [ fetch-latest-debian-package-version, validate-inputs ]
   #   environment: release
   #   steps:

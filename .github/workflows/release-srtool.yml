@@ -33,7 +33,7 @@ jobs:
       name: Scan repo paritytech/polkadot-sdk
       outputs:
         runtime: ${{ steps.get_runtimes_list.outputs.runtime }}
-      runs-on: ubuntu-latest
+      runs-on: parity-default
       steps:
         - name: Checkout
           uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
@@ -79,7 +79,7 @@ jobs:
             fi
 
   srtool:
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     needs:
       - find-runtimes
     strategy:
