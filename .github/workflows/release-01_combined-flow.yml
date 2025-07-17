@@ -129,6 +129,10 @@ jobs:
       chain: ${{ inputs.chain }}
       runtime_dir: ${{ inputs.runtime_dir }}
       weekly_release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
 
   build-weekly-rc-docker-images:
     needs: [ tag-weekly-rc, build-weekly-rc ]
