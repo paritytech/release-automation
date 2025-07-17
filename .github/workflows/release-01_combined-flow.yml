@@ -141,3 +141,7 @@ jobs:
       version: ${{ inputs.node_version }}
     secrets:
        RELEASE_AUTOMATION_APP_PRIVATE_KEY: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
+permissions:
+  contents: write
+  id-token: write
+  actions: read

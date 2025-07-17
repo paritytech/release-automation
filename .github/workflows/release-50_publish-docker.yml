@@ -88,6 +88,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  actions: read
 
 env:
   ENGINE: docker
