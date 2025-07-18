@@ -47,8 +47,6 @@ jobs:
   tag_rc:
     needs: [ validate-inputs ]
     runs-on: parity-default
-    container:
-      image: docker.io/paritytech/gnupg:latest
     strategy:
       matrix:
         channel:
@@ -67,8 +65,7 @@ jobs:
     steps:
       - name: Install python deps and gh
         run: |
-          # sudo apt-get update && sudo apt-get install -y python3-pip python3 gh
-          apt-get update && sudo apt-get install -y python3-pip python3 gh
+          sudo apt-get update && sudo apt-get install -y python3-pip python3 gh
       - name: Install pgpkkms
         run: |
           # Install pgpkms that is used to sign commits
@@ -135,8 +132,9 @@ jobs:
           GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
           RC_TAG: ${{ steps.compute_tag.outputs.new_tag }}
         run: |
-          echo "Check /home/runner/.local/bin/"
-          ls -la /home/runner/.local/bin/
+          echo $PATH
+          ls -la /home/runner/.local/bin/pgpkms-git
+          /home/runner/.local/bin/pgpkms-git -v
           git tag -s $RC_TAG -m "new rc tag $RC_TAG"
           git push origin $RC_TAG
 
