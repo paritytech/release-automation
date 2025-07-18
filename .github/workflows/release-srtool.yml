@@ -80,6 +80,8 @@ jobs:
 
   srtool:
     runs-on: parity-default
+    container:
+      image: ubuntu:latest
     needs:
       - find-runtimes
     strategy:
