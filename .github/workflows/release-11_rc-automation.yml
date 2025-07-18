@@ -102,7 +102,7 @@ jobs:
       - name: Config git
         run: |
           git config --global commit.gpgsign true
-          git config --global gpg.program /home/runner/.local/bin/pgpkms-git
+          git config --global gpg.program /usr/local/bin/pgpkms-git
           git config --global user.name "ParityReleases"
           git config --global user.email "release-team@parity.io"
           git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
