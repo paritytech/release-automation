@@ -105,9 +105,8 @@ jobs:
           BUILD_OPTS: ${{ inputs.build_opts }}
         with:
           chain: ${{ matrix.chain }}
-          runtime_dir: ${{ github.workspace }}/${{ matrix.runtime_dir }}
+          runtime_dir: ${{ matrix.runtime_dir }}
           profile: ${{ inputs.profile }}
-          workdir: ${{ github.workspace }}
 
       - name: Summary
         run: |
