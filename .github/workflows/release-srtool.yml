@@ -95,13 +95,15 @@ jobs:
           ref: ${{ inputs.weekly_release_tag }}
           fetch-depth: 0
 
-      # - name: Workaround for permissions issue due to uid/gid mismatch in the srtool container
-      #   run: |
-      #     sudo chown -R 1001:1001 ${{ github.workspace }}
-      #     ls -la ${{ github.workspace }}
 
-      #     echo "user id: $(id -u)"
-      #     echo "User runner id: $(id -u runner)"
+      - name: Workaround for permissions issue due to uid/gid mismatch in the srtool container
+        run: |
+          apt-get update && apt-get install -y curl
+          # sudo chown -R 1001:1001 ${{ github.workspace }}
+          # ls -la ${{ github.workspace }}
+
+          # echo "user id: $(id -u)"
+          # echo "User runner id: $(id -u runner)"
 
       - name: Srtool build
         id: srtool_build
