@@ -64,9 +64,9 @@ jobs:
 
   tag_rc:
     needs: [ setup ]
-    runs-on: parity-default
-    container:
-      image: ${{ needs.setup.outputs.IMAGE }}
+    runs-on: ubuntu-latest
+    #container:
+     # image: ${{ needs.setup.outputs.IMAGE }}
     strategy:
       matrix:
         channel:
