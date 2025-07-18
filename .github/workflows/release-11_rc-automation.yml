@@ -65,9 +65,9 @@ jobs:
       rc_tag: ${{ steps.compute_tag.outputs.new_tag }}
 
     steps:
-      # - name: Install python deps and gh
-      #   run: |
-      #     sudo apt-get update && sudo apt-get install -y python3-pip python3 gh gnupg
+      - name: Install python deps and gh
+        run: |
+          sudo apt-get update && sudo apt-get install -y python3-pip python3 gh
       - name: Install pgpkkms
         run: |
           # Install pgpkms that is used to sign commits
