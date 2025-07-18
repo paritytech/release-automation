@@ -104,7 +104,7 @@ jobs:
         env:
           BUILD_OPTS: ${{ inputs.build_opts }}
         with:
-          chain: ${{ matrix.chain }}
+          chain: ${{ github.workspace }}/${{ matrix.chain }}
           runtime_dir: ${{ matrix.runtime_dir }}
           profile: ${{ inputs.profile }}
           workdir: ${{ github.workspace }}
