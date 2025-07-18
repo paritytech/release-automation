@@ -96,6 +96,7 @@ jobs:
       - name: Workaround for permissions issue due to uid/gid mismatch in the srtool container
         run: |
           sudo chown -R 1001:1001 ${{ github.workspace }}
+          ls -la ${{ github.workspace }}
 
       - name: Srtool build
         id: srtool_build
