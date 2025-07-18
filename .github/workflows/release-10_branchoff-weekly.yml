@@ -90,6 +90,8 @@ jobs:
         run: |
           # Install pgpkms that is used to sign commits
           pip install git+https://github.com/paritytech-release/pgpkms.git@e7f806f99e9be5c52f0b4a536b7d4ef9c3e695ed
+          sudo ln -s /home/runner/.local/bin/pgpkms-git /usr/local/bin/pgpkms-git
+          sudo ln -s /home/runner/.local/bin/pgpkms /usr/local/bin/pgpkms
 
       - name: Generate content write token for the release automation
         id: generate_write_token
@@ -115,7 +117,7 @@ jobs:
       - name: Config git
         run: |
           git config --global commit.gpgsign true
-          git config --global gpg.program /home/runner/.local/bin/pgpkms-git
+          git config --global gpg.program /usr/local/bin/pgpkms-git
           git config --global user.name "ParityReleases"
           git config --global user.email "release-team@parity.io"
           git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
