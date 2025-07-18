@@ -106,6 +106,7 @@ jobs:
           chain: ${{ matrix.chain }}
           runtime_dir: ${{ matrix.runtime_dir }}
           profile: ${{ inputs.profile }}
+          workdir: ${{ github.workspace }}
 
       - name: Summary
         run: |
