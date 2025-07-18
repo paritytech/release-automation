@@ -3,11 +3,11 @@ on:
   workflow_dispatch:
     inputs:
       weekly_version:
-        description: Current release/rc version in format polkadot-stableYYMM
+        description: Current release/rc version in format polkadot-weeklyW#
   workflow_call:
     inputs:
       weekly_version:
-        description: Current release/rc version in format polkadot-stableYYMM
+        description: Current release/rc version in format polkadot-weeklyW#
         type: string
     secrets:
       PGP_KMS_SIGN_COMMITS_KEY:
@@ -70,7 +70,9 @@ jobs:
         run: |
           # Install pgpkms that is used to sign commits
           pip install git+https://github.com/paritytech-release/pgpkms.git@e7f806f99e9be5c52f0b4a536b7d4ef9c3e695ed
-          which pgpkms-git
+          which pgpkms
+          echo "Check /home/runner/.local/bin/"
+          ls -la /home/runner/.local/bin/
 
       - name: Generate content write token for the release automation
         id: generate_write_token

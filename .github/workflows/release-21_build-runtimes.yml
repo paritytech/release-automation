@@ -31,7 +31,7 @@ on:
           - cumulus/parachains/runtimes/people/people-westend
 
       weekly_release_tag:
-        description: Tag matching the actual release candidate with the format polkadot-stableYYMM(-X)-rcX or polkadot-stableYYMM(-X)
+        description: Tag matching the actual release candidate with the format polkadot-weeklyW#-rcX
         type: string
 
   workflow_call:
@@ -46,7 +46,7 @@ on:
         default: polkadot/runtime/westend
         type: string
       weekly_release_tag:
-        description: Tag matching the actual release candidate with the format polkadot-stableYYMM(-X)-rcX or polkadot-stableYYMM(-X)
+        description: Tag matching the actual release candidate with the format polkadot-weeklyW#-rcX
         type: string
 
 jobs:

@@ -188,8 +188,8 @@ jobs:
       #   env:
       #     GH_TOKEN: ${{ steps.generate_write_token.outputs.token }} # or use a PAT with workflow scope
       #   run: |
-      #     stable_tag_base=polkadot-${{ needs.validate-inputs.outputs.weekly_version }}
+      #     weekly_tag_base=polkadot-${{ needs.validate-inputs.outputs.weekly_version }}
       #     gh workflow run release-11_rc-automation.yml \
       #       --repo ${{ github.repository }} \
       #       --ref ${{ needs.validate-inputs.outputs.weekly_version }} \
-      #       --field version=${stable_tag_base}
+      #       --field version=${weekly_tag_base}

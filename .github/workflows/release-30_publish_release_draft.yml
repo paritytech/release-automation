@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Tag matching the actual release candidate with the format polkadot-stableYYMM(-X)-rcX or polkadot-stableYYMM(-X)
+        description: Tag matching the actual release candidate with the format polkadot-weeklyW#-rcX
         required: true
         type: string
       build_run_id:
@@ -46,7 +46,7 @@ jobs:
         run: |
           . ./.github/scripts/common/lib.sh
 
-          RELEASE_TAG=$(validate_stable_tag ${{ inputs.release_tag }})
+          RELEASE_TAG=$(validate_weekly_release_tag ${{ inputs.release_tag }})
           echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
 
 
@@ -111,7 +111,7 @@ jobs:
             echo "REF2: ${REF2}"
           fi
           echo "REL_TAG=$REF2" >> $GITHUB_ENV
-          export VERSION=$(echo "$REF2" | sed -E 's/.*(stable[0-9]{4}(-[0-9]+)?).*$/\1/')
+          export VERSION=$(echo "$REF2" | sed -E 's/.*(weeklyW[0-9]+).*$/\1/')
 
           ./scripts/release/build-changelogs.sh
 
