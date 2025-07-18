@@ -90,9 +90,7 @@ jobs:
         run: |
           # Install pgpkms that is used to sign commits
           pip install git+https://github.com/paritytech-release/pgpkms.git@e7f806f99e9be5c52f0b4a536b7d4ef9c3e695ed
-          # which pgpkms
-          echo "Check /home/runner/.local/bin/"
-          ls -la /home/runner/.local/bin/
+          which pgpkms
 
       - name: Generate content write token for the release automation
         id: generate_write_token
@@ -152,9 +150,6 @@ jobs:
           GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
           RC_TAG: ${{ steps.compute_tag.outputs.new_tag }}
         run: |
-          echo $PATH
-          ls -la /home/runner/.local/bin/pgpkms-git
-          /home/runner/.local/bin/pgpkms-git -v
           git tag -s $RC_TAG -m "new rc tag $RC_TAG"
           git push origin $RC_TAG
 
