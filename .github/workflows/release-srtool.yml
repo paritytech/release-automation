@@ -93,6 +93,10 @@ jobs:
           ref: ${{ inputs.weekly_release_tag }}
           fetch-depth: 0
 
+      - name: Workaround for permissions issue due to uid/gid mismatch in the srtool container
+        run: |
+          sudo chown -R 1001:1001 ${{ github.workspace }}
+
       - name: Srtool build
         id: srtool_build
         uses: chevdor/srtool-actions@v0.9.2
