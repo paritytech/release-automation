@@ -214,7 +214,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y gh
 
           mkdir -p ${{ github.workspace}}/release-artifacts/
-          gh run download ${{ github.event.inputs.build_run_id }} --repo paritytech/release-automation --dir ${{ github.workspace}}/release-artifacts -p "polkadot*"
+          gh run download ${{ inputs.build_run_id }} --repo paritytech/release-automation --dir ${{ github.workspace}}/release-artifacts -p "polkadot*"
           # move all the downloadedfiles to the root directory
           find ${{ github.workspace}}/release-artifacts -mindepth 2 -type f -print0 | xargs -0 -I{} mv {} ${{ github.workspace}}/release-artifacts/
           # delete all the empty directories
