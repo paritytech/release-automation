@@ -82,6 +82,11 @@ on:
         description: Tag matching the actual weekly release version in the format polkadot-weeklyW#
         required: true
         type: string
+      build_run_id:
+        description: Run ID of the current release workflow run to be used to download the artifacts
+        required: true
+        type: string
+
     secrets:
       RELEASE_AUTOMATION_APP_PRIVATE_KEY:
         required: true
