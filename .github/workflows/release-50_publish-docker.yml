@@ -270,12 +270,14 @@ jobs:
         shell: bash
         run: |
           . ../.github/scripts/common/lib.sh
+          weekly_tag="${{ needs.validate-inputs.outputs.weekly_release_tag }}"
 
           commit=$(git rev-parse --short HEAD) && \
           echo "commit=${commit}" >> $GITHUB_OUTPUT
-          echo "release=$(echo ${{ needs.validate-inputs.outputs.version }})" >> $GITHUB_OUTPUT
 
-          weekly_tag="${{ needs.validate-inputs.outputs.weekly_release_tag }}"
+          rc_suffix=$(echo $weekly_tag | sed -n 's/.*\(-rc[0-9]\+\)/\1/p')
+          echo "release=$(echo ${{ needs.validate-inputs.outputs.version }})$rc_suffix" >> $GITHUB_OUTPUT
+
           docker_tag="${weekly_tag#polkadot-}"
           echo "tag=$docker_tag" >> $GITHUB_OUTPUT
 
