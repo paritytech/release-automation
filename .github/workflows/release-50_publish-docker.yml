@@ -18,6 +18,7 @@ on:
         default: polkadot
         type: choice
         options:
+          - all
           - polkadot
           # - polkadot-omni-node
           - polkadot-parachain
@@ -55,7 +56,7 @@ on:
       binary:
         description: Binary to be published
         required: true
-        default: '[ "polkadot", "polkadot-omni-node", "polkadot-parachain" ]'
+        default: '[ "polkadot", "polkadot-parachain" ]'
         type: string
 
       registry:
@@ -142,7 +143,7 @@ jobs:
           . ./.github/scripts/common/lib.sh
 
           if [ "$BINARY" == "all" ]; then
-              MATRIX='["polkadot", "polkadot-omni-node", "polkadot-parachain"]'
+              MATRIX='["polkadot", "polkadot-parachain"]'
               echo $MATRIX
               echo "binaries=$MATRIX" >> $GITHUB_OUTPUT
             else
@@ -182,9 +183,7 @@ jobs:
   #         path: release-artifacts/x86_64-unknown-linux-gnu/${{ env.BINARY }}/**/*
 
   build-container: # this job will be triggered for the polkadot-parachain rc and release or polkadot rc image build
-    # if: ${{ inputs.binary == 'polkadot-omni-node' || inputs.binary == 'polkadot-parachain' || inputs.binary == 'chain-spec-builder' || inputs.image_type == 'rc' }}
     runs-on: parity-default
-    # needs: [ fetch-artifacts, validate-inputs ]
     needs: [ validate-inputs, set-up-binaries ]
     environment: release
     strategy:
@@ -210,7 +209,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
           GITHUB_TOKEN: ${{ steps.generate_write_token.outputs.token }}
-          RUN_ID: ${{ github.event.inputs.build_run_id }}
+          RUN_ID: ${{ inputs.build_run_id }}
         run: |
           sudo apt-get update && sudo apt-get install -y gh
 
