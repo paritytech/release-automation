@@ -300,6 +300,7 @@ jobs:
           IMAGE_NAME: polkadot
           OWNER: ${{ env.DOCKER_OWNER }}
           TAGS: ${{ join(steps.fetch_rc_refs.outputs.*, ',') }}
+          BINARY: ${{ matrix.binary }}
         run: |
           ls -al
           echo "Building container for polkadot"
@@ -313,6 +314,7 @@ jobs:
           IMAGE_NAME: ${{ matrix.binary }}
           OWNER: ${{ env.DOCKER_OWNER }}
           TAGS: ${{ join(steps.fetch_rc_refs.outputs.*, ',') }}
+          BINARY: ${{ matrix.binary }}
         run: |
           ls -al
           echo "Building container for $${{ matrix.binary }}"
@@ -326,8 +328,10 @@ jobs:
           OWNER: ${{ env.DOCKER_OWNER }}
           DOCKERFILE: docker/dockerfiles/polkadot-parachain/polkadot-parachain_injected.Dockerfile
           TAGS: ${{ join(steps.fetch_rc_refs.outputs.*, ',') }}
+          BINARY: ${{ matrix.binary }}
         run: |
           ls -al
+          ls -al $ARTIFACTS_FOLDER
           mkdir -p $ARTIFACTS_FOLDER/specs
           cp cumulus/parachains/chain-specs/*.json $ARTIFACTS_FOLDER/specs
 
