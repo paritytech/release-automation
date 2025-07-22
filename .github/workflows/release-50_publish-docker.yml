@@ -211,6 +211,8 @@ jobs:
           GITHUB_TOKEN: ${{ steps.generate_write_token.outputs.token }}
           RUN_ID: ${{ inputs.build_run_id }}
         run: |
+          sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-key C99B11DEB97541F0
+          sudo apt-add-repository https://cli.github.com/packages
           sudo apt-get update && sudo apt-get install -y gh
 
           mkdir -p ${{ github.workspace}}/release-artifacts/
