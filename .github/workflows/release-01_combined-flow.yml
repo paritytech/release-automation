@@ -146,6 +146,10 @@ jobs:
       build_run_id: ${{ github.run_id }}
     secrets:
        RELEASE_AUTOMATION_APP_PRIVATE_KEY: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
+       POLKADOT_DOCKERHUB_USERNAME: ${{ secrets.POLKADOT_DOCKERHUB_USERNAME }}
+       POLKADOT_DOCKERHUB_TOKEN: ${{ secrets.POLKADOT_DOCKERHUB_TOKEN }}
+       CUMULUS_DOCKERHUB_USERNAME: ${{ secrets.CUMULUS_DOCKERHUB_USERNAME }}
+       CUMULUS_DOCKERHUB_TOKEN: ${{ secrets.CUMULUS_DOCKERHUB_TOKEN }}
 permissions:
   contents: write
   id-token: write

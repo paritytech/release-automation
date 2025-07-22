@@ -91,6 +91,14 @@ on:
     secrets:
       RELEASE_AUTOMATION_APP_PRIVATE_KEY:
         required: true
+      POLKADOT_DOCKERHUB_USERNAME:
+        required: true
+      POLKADOT_DOCKERHUB_TOKEN:
+        required: true
+      CUMULUS_DOCKERHUB_USERNAME:
+        required: true
+      CUMULUS_DOCKERHUB_TOKEN:
+        required: true
 
 permissions:
   contents: write
