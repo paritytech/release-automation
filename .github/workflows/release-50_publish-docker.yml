@@ -15,7 +15,7 @@ on:
       binary:
         description: Binary to be published
         required: true
-        default: polkadot
+        default: all
         type: choice
         options:
           - all
@@ -39,8 +39,8 @@ on:
         default: parity
 
       version:
-        description: Version of the polkadot node release in format v1.16.0 or v1.16.0-rc1
-        default: v1.19.0
+        description: Version of the polkadot node release in format v1.XX.X-weeklyW#
+        default: v1.19.0-weeklyW1
         required: true
 
       weekly_release_tag:
@@ -74,8 +74,8 @@ on:
         default: parity
 
       version:
-        description: Version of the polkadot node release in format v1.16.0 or v1.16.0-rc1
-        default: v1.19.0
+        description: Version of the polkadot node release in format v1.XX.X-weeklyW#
+        default: v1.19.0-weeklyW1
         required: true
         type: string
 
@@ -151,38 +151,7 @@ jobs:
               echo "binaries=$MATRIX" >> $GITHUB_OUTPUT
             fi
 
-
-  # fetch-artifacts: # this job will be triggered for the polkadot-parachain rc and release or polkadot rc image build
-  #   if: ${{ inputs.binary == 'polkadot-omni-node' || inputs.binary == 'polkadot-parachain' || inputs.binary == 'chain-spec-builder' || inputs.image_type == 'rc' }}
-  #   runs-on: parity-default
-  #   needs: [ validate-inputs ]
-
-  #   steps:
-  #     - name: Checkout sources
-  #       uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
-
-  #     - name: Fetch rc artifacts or release artifacts from s3 based on version
-  #       # if: ${{ env.EVENT_NAME  == 'workflow_dispatch' && inputs.binary != 'polkadot-omni-node' && inputs.binary != 'chain-spec-builder'}}
-  #       run: |
-  #         . ./.github/scripts/common/lib.sh
-
-  #         VERSION="${{ needs.validate-inputs.outputs.weekly_release_tag }}"
-  #         if [[ ${{ inputs.binary }} == 'polkadot' ]]; then
-  #           bins=(polkadot polkadot-prepare-worker polkadot-execute-worker)
-  #           for bin in "${bins[@]}"; do
-  #             fetch_release_artifacts_from_s3 $bin x86_64-unknown-linux-gnu
-  #           done
-  #         else
-  #           fetch_release_artifacts_from_s3 $BINARY x86_64-unknown-linux-gnu
-  #         fi
-
-  #     - name: Upload artifacts
-  #       uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
-  #       with:
-  #         name: release-artifacts
-  #         path: release-artifacts/x86_64-unknown-linux-gnu/${{ env.BINARY }}/**/*
-
-  build-container: # this job will be triggered for the polkadot-parachain rc and release or polkadot rc image build
+  build-container:
     runs-on: parity-default
     needs: [ validate-inputs, set-up-binaries ]
     environment: release
@@ -206,7 +175,6 @@ jobs:
             owner: paritytech
 
       - name: Download artifacts
-        if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
           GITHUB_TOKEN: ${{ steps.generate_write_token.outputs.token }}
           RUN_ID: ${{ inputs.build_run_id }}
@@ -227,16 +195,6 @@ jobs:
           find ${{ github.workspace}}/release-artifacts -mindepth 2 -type f -print0 | xargs -0 -I{} mv {} ${{ github.workspace}}/release-artifacts/
           # delete all the empty directories
           find ${{ github.workspace}}/release-artifacts -mindepth 1 -type d -empty -delete
-
-      - name: Download artifacts
-        if: ${{ github.event_name == 'workflow_call' }}
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
-        env:
-          GITHUB_TOKEN: ${{ steps.generate_write_token.outputs.token }}
-        with:
-          pattern: polkadot*
-          path: release-artifacts
-          merge-multiple: true
 
       - name: Check sha256 ${{ matrix.binary }}
         # if: ${{ inputs.binary == 'polkadot-parachain' || inputs.binary == 'polkadot' }}
