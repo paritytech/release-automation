@@ -59,7 +59,7 @@ on:
 
 jobs:
   validate-inputs:
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     outputs:
       node_version: ${{ steps.validate_inputs.outputs.node_version }}
       weekly_version: ${{ steps.validate_inputs.outputs.weekly_version }}
@@ -129,6 +129,10 @@ jobs:
       chain: ${{ inputs.chain }}
       runtime_dir: ${{ inputs.runtime_dir }}
       weekly_release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
 
   build-weekly-rc-docker-images:
     needs: [ tag-weekly-rc, build-weekly-rc ]
@@ -139,5 +143,14 @@ jobs:
       registry: docker.io
       owner: parity
       version: ${{ inputs.node_version }}
+      build_run_id: ${{ github.run_id }}
     secrets:
        RELEASE_AUTOMATION_APP_PRIVATE_KEY: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
+       POLKADOT_DOCKERHUB_USERNAME: ${{ secrets.POLKADOT_DOCKERHUB_USERNAME }}
+       POLKADOT_DOCKERHUB_TOKEN: ${{ secrets.POLKADOT_DOCKERHUB_TOKEN }}
+       CUMULUS_DOCKERHUB_USERNAME: ${{ secrets.CUMULUS_DOCKERHUB_USERNAME }}
+       CUMULUS_DOCKERHUB_TOKEN: ${{ secrets.CUMULUS_DOCKERHUB_TOKEN }}
+permissions:
+  contents: write
+  id-token: write
+  actions: read

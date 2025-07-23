@@ -15,9 +15,10 @@ on:
       binary:
         description: Binary to be published
         required: true
-        default: polkadot
+        default: all
         type: choice
         options:
+          - all
           - polkadot
           # - polkadot-omni-node
           - polkadot-parachain
@@ -38,8 +39,8 @@ on:
         default: parity
 
       version:
-        description: Version of the polkadot node release in format v1.16.0 or v1.16.0-rc1
-        default: v1.19.0
+        description: Version of the polkadot node release in format v1.XX.X-weeklyW#
+        default: v1.19.0-weeklyW1
         required: true
 
       weekly_release_tag:
@@ -55,7 +56,7 @@ on:
       binary:
         description: Binary to be published
         required: true
-        default: '[ "polkadot", "polkadot-omni-node", "polkadot-parachain" ]'
+        default: '[ "polkadot", "polkadot-parachain" ]'
         type: string
 
       registry:
@@ -73,8 +74,8 @@ on:
         default: parity
 
       version:
-        description: Version of the polkadot node release in format v1.16.0 or v1.16.0-rc1
-        default: v1.19.0
+        description: Version of the polkadot node release in format v1.XX.X-weeklyW#
+        default: v1.19.0-weeklyW1
         required: true
         type: string
 
@@ -82,12 +83,27 @@ on:
         description: Tag matching the actual weekly release version in the format polkadot-weeklyW#
         required: true
         type: string
+      build_run_id:
+        description: Run ID of the current release workflow run to be used to download the artifacts
+        required: true
+        type: string
+
     secrets:
       RELEASE_AUTOMATION_APP_PRIVATE_KEY:
+        required: true
+      POLKADOT_DOCKERHUB_USERNAME:
+        required: true
+      POLKADOT_DOCKERHUB_TOKEN:
+        required: true
+      CUMULUS_DOCKERHUB_USERNAME:
+        required: true
+      CUMULUS_DOCKERHUB_TOKEN:
         required: true
 
 permissions:
   contents: write
+  id-token: write
+  actions: read
 
 env:
   ENGINE: docker
@@ -100,7 +116,7 @@ env:
 
 jobs:
   validate-inputs:
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     outputs:
       version: ${{ steps.validate_inputs.outputs.VERSION }}
       weekly_release_tag: ${{ steps.validate_inputs.outputs.weekly_release_tag }}
@@ -121,7 +137,7 @@ jobs:
           echo "weekly_release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
 
   set-up-binaries:
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     needs: [ validate-inputs ]
     outputs:
       binaries: ${{ steps.set_up_binaries.outputs.binaries }}
@@ -135,7 +151,7 @@ jobs:
           . ./.github/scripts/common/lib.sh
 
           if [ "$BINARY" == "all" ]; then
-              MATRIX='["polkadot", "polkadot-omni-node", "polkadot-parachain"]'
+              MATRIX='["polkadot", "polkadot-parachain"]'
               echo $MATRIX
               echo "binaries=$MATRIX" >> $GITHUB_OUTPUT
             else
@@ -143,41 +159,8 @@ jobs:
               echo "binaries=$MATRIX" >> $GITHUB_OUTPUT
             fi
 
-
-  # fetch-artifacts: # this job will be triggered for the polkadot-parachain rc and release or polkadot rc image build
-  #   if: ${{ inputs.binary == 'polkadot-omni-node' || inputs.binary == 'polkadot-parachain' || inputs.binary == 'chain-spec-builder' || inputs.image_type == 'rc' }}
-  #   runs-on: ubuntu-latest
-  #   needs: [ validate-inputs ]
-
-  #   steps:
-  #     - name: Checkout sources
-  #       uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
-
-  #     - name: Fetch rc artifacts or release artifacts from s3 based on version
-  #       # if: ${{ env.EVENT_NAME  == 'workflow_dispatch' && inputs.binary != 'polkadot-omni-node' && inputs.binary != 'chain-spec-builder'}}
-  #       run: |
-  #         . ./.github/scripts/common/lib.sh
-
-  #         VERSION="${{ needs.validate-inputs.outputs.weekly_release_tag }}"
-  #         if [[ ${{ inputs.binary }} == 'polkadot' ]]; then
-  #           bins=(polkadot polkadot-prepare-worker polkadot-execute-worker)
-  #           for bin in "${bins[@]}"; do
-  #             fetch_release_artifacts_from_s3 $bin x86_64-unknown-linux-gnu
-  #           done
-  #         else
-  #           fetch_release_artifacts_from_s3 $BINARY x86_64-unknown-linux-gnu
-  #         fi
-
-  #     - name: Upload artifacts
-  #       uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
-  #       with:
-  #         name: release-artifacts
-  #         path: release-artifacts/x86_64-unknown-linux-gnu/${{ env.BINARY }}/**/*
-
-  build-container: # this job will be triggered for the polkadot-parachain rc and release or polkadot rc image build
-    # if: ${{ inputs.binary == 'polkadot-omni-node' || inputs.binary == 'polkadot-parachain' || inputs.binary == 'chain-spec-builder' || inputs.image_type == 'rc' }}
-    runs-on: ubuntu-latest
-    # needs: [ fetch-artifacts, validate-inputs ]
+  build-container:
+    runs-on: parity-default
     needs: [ validate-inputs, set-up-binaries ]
     environment: release
     strategy:
@@ -200,24 +183,26 @@ jobs:
             owner: paritytech
 
       - name: Download artifacts
-        if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
           GITHUB_TOKEN: ${{ steps.generate_write_token.outputs.token }}
+          RUN_ID: ${{ inputs.build_run_id }}
         run: |
+          (type -p wget >/dev/null || (sudo apt update && sudo apt install wget -y)) \
+            && sudo mkdir -p -m 755 /etc/apt/keyrings \
+            && out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+            && cat $out | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+            && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+            && sudo mkdir -p -m 755 /etc/apt/sources.list.d \
+            && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+            && sudo apt update \
+            && sudo apt install gh -y
+
           mkdir -p ${{ github.workspace}}/release-artifacts/
-          gh run download ${{ github.event.inputs.build_run_id }} --repo paritytech/release-automation --dir ${{ github.workspace}}/release-artifacts -p "polkadot*"
+          gh run download ${{ env.RUN_ID }} --repo paritytech/release-automation --dir ${{ github.workspace}}/release-artifacts -p "polkadot*"
           # move all the downloadedfiles to the root directory
           find ${{ github.workspace}}/release-artifacts -mindepth 2 -type f -print0 | xargs -0 -I{} mv {} ${{ github.workspace}}/release-artifacts/
           # delete all the empty directories
           find ${{ github.workspace}}/release-artifacts -mindepth 1 -type d -empty -delete
-
-      - name: Download artifacts
-        if: ${{ github.event_name == 'workflow_call' }}
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
-        with:
-          pattern: polkadot*
-          path: release-artifacts
-          merge-multiple: true
 
       - name: Check sha256 ${{ matrix.binary }}
         # if: ${{ inputs.binary == 'polkadot-parachain' || inputs.binary == 'polkadot' }}
@@ -251,12 +236,14 @@ jobs:
         shell: bash
         run: |
           . ../.github/scripts/common/lib.sh
+          weekly_tag="${{ needs.validate-inputs.outputs.weekly_release_tag }}"
 
           commit=$(git rev-parse --short HEAD) && \
           echo "commit=${commit}" >> $GITHUB_OUTPUT
-          echo "release=$(echo ${{ needs.validate-inputs.outputs.version }})" >> $GITHUB_OUTPUT
 
-          weekly_tag="${{ needs.validate-inputs.outputs.weekly_release_tag }}"
+          rc_suffix=$(echo $weekly_tag | sed -n 's/.*\(-rc[0-9]\+\)/\1/p')
+          echo "release=$(echo ${{ needs.validate-inputs.outputs.version }})$rc_suffix" >> $GITHUB_OUTPUT
+
           docker_tag="${weekly_tag#polkadot-}"
           echo "tag=$docker_tag" >> $GITHUB_OUTPUT
 
@@ -279,6 +266,7 @@ jobs:
           IMAGE_NAME: polkadot
           OWNER: ${{ env.DOCKER_OWNER }}
           TAGS: ${{ join(steps.fetch_rc_refs.outputs.*, ',') }}
+          BINARY: ${{ matrix.binary }}
         run: |
           ls -al
           echo "Building container for polkadot"
@@ -292,6 +280,7 @@ jobs:
           IMAGE_NAME: ${{ matrix.binary }}
           OWNER: ${{ env.DOCKER_OWNER }}
           TAGS: ${{ join(steps.fetch_rc_refs.outputs.*, ',') }}
+          BINARY: ${{ matrix.binary }}
         run: |
           ls -al
           echo "Building container for $${{ matrix.binary }}"
@@ -305,8 +294,10 @@ jobs:
           OWNER: ${{ env.DOCKER_OWNER }}
           DOCKERFILE: docker/dockerfiles/polkadot-parachain/polkadot-parachain_injected.Dockerfile
           TAGS: ${{ join(steps.fetch_rc_refs.outputs.*, ',') }}
+          BINARY: ${{ matrix.binary }}
         run: |
           ls -al
+          ls -al $ARTIFACTS_FOLDER
           mkdir -p $ARTIFACTS_FOLDER/specs
           cp cumulus/parachains/chain-specs/*.json $ARTIFACTS_FOLDER/specs
 
@@ -347,7 +338,7 @@ jobs:
 
   # fetch-latest-debian-package-version: # this job will be triggered for polkadot release build
   #   if: ${{ inputs.binary == 'polkadot' && inputs.image_type == 'release' }}
-  #   runs-on: ubuntu-latest
+  #   runs-on: parity-default
   #   outputs:
   #     polkadot_apt_version: ${{ steps.fetch-latest-apt.outputs.polkadot_apt_version }}
   #     polkadot_container_tag: ${{ steps.fetch-latest-apt.outputs.polkadot_container_tag }}
@@ -369,7 +360,7 @@ jobs:
 
   # build-polkadot-release-container: # this job will be triggered for polkadot release build
   #   if: ${{ inputs.binary == 'polkadot' && inputs.image_type == 'release' }}
-  #   runs-on: ubuntu-latest
+  #   runs-on: parity-default
   #   needs: [ fetch-latest-debian-package-version, validate-inputs ]
   #   environment: release
   #   steps:

@@ -3,11 +3,11 @@ on:
   workflow_dispatch:
     inputs:
       weekly_version:
-        description: Current release/rc version in format polkadot-stableYYMM
+        description: Current release/rc version in format weeklyW#
   workflow_call:
     inputs:
       weekly_version:
-        description: Current release/rc version in format polkadot-stableYYMM
+        description: Current release/rc version in format weeklyW#
         type: string
     secrets:
       PGP_KMS_SIGN_COMMITS_KEY:
@@ -30,7 +30,7 @@ on:
 jobs:
 
   validate-inputs:
-    runs-on: ubuntu-latest
+    runs-on: parity-default
     outputs:
       weekly_version: ${{ steps.validate_inputs.outputs.weekly_version }}
 
@@ -44,9 +44,12 @@ jobs:
           . ./.github/scripts/common/lib.sh
           weekly_version=$(validate_weekly_release_tag ${{ inputs.weekly_version }})
           echo "weekly_version=${weekly_version}" >> $GITHUB_OUTPUT
+
   tag_rc:
     needs: [ validate-inputs ]
-    runs-on: ubuntu-latest
+    runs-on: parity-default
+    #container:
+     # image: ${{ needs.setup.outputs.IMAGE }}
     strategy:
       matrix:
         channel:
@@ -63,10 +66,15 @@ jobs:
       rc_tag: ${{ steps.compute_tag.outputs.new_tag }}
 
     steps:
+      - name: Install python deps and gh
+        run: |
+          sudo apt-get update && sudo apt-get install -y python3-pip python3 gh
       - name: Install pgpkkms
         run: |
           # Install pgpkms that is used to sign commits
           pip install git+https://github.com/paritytech-release/pgpkms.git@e7f806f99e9be5c52f0b4a536b7d4ef9c3e695ed
+          sudo ln -s /home/runner/.local/bin/pgpkms-git /usr/local/bin/pgpkms-git
+          sudo ln -s /home/runner/.local/bin/pgpkms /usr/local/bin/pgpkms
 
       - name: Generate content write token for the release automation
         id: generate_write_token
@@ -85,6 +93,7 @@ jobs:
           ref: ${{ needs.validate-inputs.outputs.weekly_version }}
 
       - name: Import gpg keys
+        shell: bash
         run: |
           . ./.github/scripts/common/lib.sh
 
@@ -93,7 +102,7 @@ jobs:
       - name: Config git
         run: |
           git config --global commit.gpgsign true
-          git config --global gpg.program /home/runner/.local/bin/pgpkms-git
+          git config --global gpg.program /usr/local/bin/pgpkms-git
           git config --global user.name "ParityReleases"
           git config --global user.email "release-team@parity.io"
           git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
@@ -126,8 +135,8 @@ jobs:
           GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
           RC_TAG: ${{ steps.compute_tag.outputs.new_tag }}
         run: |
-         git tag -s $RC_TAG -m "new rc tag $RC_TAG"
-         git push origin $RC_TAG
+          git tag -s $RC_TAG -m "new rc tag $RC_TAG"
+          git push origin $RC_TAG
 
       # - name: Send Matrix message to ${{ matrix.channel.name }}
       #   uses: s3krit/matrix-message-action@70ad3fb812ee0e45ff8999d6af11cafad11a6ecf # v0.0.3
