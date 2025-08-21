@@ -15,7 +15,7 @@ on:
         type: string
 
       weekly_release_tag:
-        description: Tag matching the actual release candidate with the format polkadot-stableYYMM(-rcX) or polkadot-stableYYMM-X(-rcX)
+        description: Tag matching the actual release candidate with the format polkadot-weeklyYYYYw#(-rcX) (e.g. polkadot-weekly2025w1-rc1)
         required: true
         type: string
 
