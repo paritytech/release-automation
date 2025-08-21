@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       weekly_version:
-        description: The version of the weekly release in the format weeklyW# that will be used as branch name and rc tag base
-        default: weeklyW1
+        description: The version of the weekly release in the format weeklyYYYYw# that will be used as branch name and rc tag base (e.g. weekly2025w1)
+        default: weekly2025w30
         required: true
         type: string
 
       node_version:
-        description: Version of the polkadot node in the format X.XX.X-weeklyW# (e.g. 1.15.0-weeklyW1).
-        default: 1.999.0-weeklyW1
+        description: Version of the polkadot node in the format X.XX.X-weeklyYYYYw# (e.g. 1.15.0-weekly2025w1).
+        default: 1.999.0-weekly2025w30
         required: true
         type: string
 
@@ -88,29 +88,13 @@ jobs:
       weekly_version: ${{ needs.validate-inputs.outputs.weekly_version }}
       node_version: ${{ needs.validate-inputs.outputs.node_version }}
       is_new_weekly: ${{ inputs.is_new_weekly }}
-    secrets:
-      PGP_KMS_SIGN_COMMITS_KEY:  ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
-      PGP_KMS_HASH:  ${{ secrets.PGP_KMS_HASH }}
-      AWS_ACCESS_KEY_ID:  ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION:  ${{ secrets.AWS_DEFAULT_REGION }}
-      RELEASE_AUTOMATION_APP_PRIVATE_KEY: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
-      # RELEASENOTES_MATRIX_V2_ACCESS_TOKEN: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
-
+    secrets: inherit
   tag-weekly-rc:
     needs: [ validate-inputs, create-or-update-weekly-branch ]
     uses: ./.github/workflows/release-11_rc-automation.yml
     with:
       weekly_version: ${{ needs.validate-inputs.outputs.weekly_version }}
-    secrets:
-      PGP_KMS_SIGN_COMMITS_KEY:  ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
-      PGP_KMS_HASH:  ${{ secrets.PGP_KMS_HASH }}
-      AWS_ACCESS_KEY_ID:  ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION:  ${{ secrets.AWS_DEFAULT_REGION }}
-      RELEASE_AUTOMATION_APP_PRIVATE_KEY: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
-      # RELEASENOTES_MATRIX_V2_ACCESS_TOKEN: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
-
+    secrets: inherit
   build-weekly-rc:
     needs: [ tag-weekly-rc ]
     uses: ./.github/workflows/release-20_build-rc.yml
@@ -144,13 +128,8 @@ jobs:
       owner: parity
       version: ${{ inputs.node_version }}
       build_run_id: ${{ github.run_id }}
-    secrets:
-       RELEASE_AUTOMATION_APP_PRIVATE_KEY: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
-       POLKADOT_DOCKERHUB_USERNAME: ${{ secrets.POLKADOT_DOCKERHUB_USERNAME }}
-       POLKADOT_DOCKERHUB_TOKEN: ${{ secrets.POLKADOT_DOCKERHUB_TOKEN }}
-       CUMULUS_DOCKERHUB_USERNAME: ${{ secrets.CUMULUS_DOCKERHUB_USERNAME }}
-       CUMULUS_DOCKERHUB_TOKEN: ${{ secrets.CUMULUS_DOCKERHUB_TOKEN }}
-permissions:
-  contents: write
-  id-token: write
-  actions: read
+    secrets: inherit
+    permissions:
+      contents: write
+      id-token: write
+      actions: read

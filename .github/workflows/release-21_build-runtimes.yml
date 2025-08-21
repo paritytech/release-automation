@@ -31,7 +31,7 @@ on:
           - cumulus/parachains/runtimes/people/people-westend
 
       weekly_release_tag:
-        description: Tag matching the actual release candidate with the format polkadot-weeklyW#-rcX
+        description: Tag matching the actual release candidate with the format polkadot-weeklyYYYYw#-rcX (e.g. polkadot-weekly2025w1-rc1)
         type: string
 
   workflow_call:
@@ -42,11 +42,11 @@ on:
         required: true
         type: string
       runtime_dir:
-        description: The runtime_dir to be used (this parameter is optional and needed only in case of the single runtime build, set it accordingly to the runtime you want to build)
+        description: The runtime_dir to be used (⚠️ this parameter is optional and needed only in case of the single runtime build, set it accordingly to the runtime you want to build)
         default: polkadot/runtime/westend
         type: string
       weekly_release_tag:
-        description: Tag matching the actual release candidate with the format polkadot-weeklyW#-rcX
+        description: Tag matching the actual release candidate with the format polkadot-weeklyYYYYw#-rcX (e.g. polkadot-weekly2025w1-rc1)
         type: string
 
 jobs:

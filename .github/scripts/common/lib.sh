@@ -444,7 +444,7 @@ function find_runtimes() {
 # output: none
 filter_version_from_input() {
   version=$1
-  regex="^(v)?[0-9]+\.[0-9]+\.[0-9]+(-weeklyW[0-9]+)?(-rc[0-9]+)?$"
+  regex="^(v)?[0-9]+\.[0-9]+\.[0-9]+(-weekly[0-9]{4}[Ww][0-9]+)?(-rc[0-9]+)?$"
 
   if [[ $version =~ $regex ]]; then
       echo $version
@@ -497,7 +497,7 @@ function get_polkadot_node_version_from_code() {
 
 validate_weekly_release_tag() {
     tag="$1"
-    pattern="^(polkadot-)?weeklyW[0-9]+(-rc[0-9]+)?$"
+    pattern="^(polkadot-)?weekly[0-9]{4}[Ww][0-9]+(-rc[0-9]+)?$"
 
     if [[ $tag =~ $pattern ]]; then
         echo $tag
