@@ -3,7 +3,7 @@ name: Release - Combined release flow
 on:
   schedule:
     # Run every Wednesday at 9:00 PM UTC
-    - cron: '32 15 * * *'
+    - cron: '3 15 * * *'
   workflow_dispatch:
     inputs:
       weekly_version:
@@ -76,7 +76,8 @@ jobs:
           weekly_version="weekly${current_year}w${current_week}"
 
           # Generate node version (using a placeholder version number)
-          node_version="1.999.0-${weekly_version}"
+          latest_node_version=$(docker run --platform linux/amd64 --rm -it parity/polkadot:latest --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          node_version="${latest_node_version}-${weekly_version}"
 
           echo "weekly_version=${weekly_version}" >> $GITHUB_OUTPUT
           echo "node_version=${node_version}" >> $GITHUB_OUTPUT
