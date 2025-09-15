@@ -1,17 +1,18 @@
 name: Release - Combined release flow
 
 on:
+  schedule:
+    # Run every Wednesday at 9:00 PM UTC
+    - cron: '31 17 * * *'
   workflow_dispatch:
     inputs:
       weekly_version:
         description: The version of the weekly release in the format weeklyYYYYw# that will be used as branch name and rc tag base (e.g. weekly2025w1)
-        default: weekly2025w30
         required: true
         type: string
 
       node_version:
         description: Version of the polkadot node in the format X.XX.X-weeklyYYYYw# (e.g. 1.15.0-weekly2025w1).
-        default: 1.999.0-weekly2025w30
         required: true
         type: string
 
@@ -46,7 +47,6 @@ on:
           - people-westend
       runtime_dir:
         description: The runtime dir to be used (⚠️ this parameter is optional and needed only in case of the single runtime build, set it accordingly to the runtime you want to build)
-        default: polkadot/runtime/westend
         type: choice
         options:
           - polkadot/runtime/westend
@@ -58,8 +58,35 @@ on:
           - cumulus/parachains/runtimes/people/people-westend
 
 jobs:
+  calculate-weekly-version:
+    runs-on: parity-default
+    outputs:
+      weekly_version: ${{ steps.calculate_weekly.outputs.weekly_version }}
+      node_version: ${{ steps.calculate_weekly.outputs.node_version }}
+
+    steps:
+      - name: Calculate weekly version
+        id: calculate_weekly
+        run: |
+          # Get current year and week number
+          current_year=$(date +%Y)
+          current_week=$(date +%V)
+
+          # Generate weekly version in format weeklyYYYYw#
+          weekly_version="weekly${current_year}w${current_week}"
+
+          # Generate node version (using a placeholder version number)
+          node_version="1.999.0-${weekly_version}"
+
+          echo "weekly_version=${weekly_version}" >> $GITHUB_OUTPUT
+          echo "node_version=${node_version}" >> $GITHUB_OUTPUT
+
+          echo "Generated weekly version: ${weekly_version}"
+          echo "Generated node version: ${node_version}"
+
   validate-inputs:
     runs-on: parity-default
+    needs: [calculate-weekly-version]
     outputs:
       node_version: ${{ steps.validate_inputs.outputs.node_version }}
       weekly_version: ${{ steps.validate_inputs.outputs.weekly_version }}
@@ -73,13 +100,21 @@ jobs:
         run: |
           . ./.github/scripts/common/lib.sh
 
-          if [ -n "${{ inputs.node_version }}" ]; then
-            node_version=$(filter_version_from_input "${{ inputs.node_version }}")
-            echo "node_version=${node_version}" >> $GITHUB_OUTPUT
+          # Use calculated values for cron triggers, or input values for manual triggers
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            # For cron triggers, use calculated values
+            weekly_version=$(validate_weekly_release_tag ${{ needs.calculate-weekly-version.outputs.weekly_version }})
+            node_version="${{ needs.calculate-weekly-version.outputs.node_version }}"
+          else
+            # For manual triggers, use input values
+            if [ -n "${{ inputs.node_version }}" ]; then
+              node_version=$(filter_version_from_input "${{ inputs.node_version }}")
+            fi
+            weekly_version=$(validate_weekly_release_tag ${{ inputs.weekly_version }})
           fi
 
-          weekly_version=$(validate_weekly_release_tag ${{ inputs.weekly_version }})
           echo "weekly_version=${weekly_version}" >> $GITHUB_OUTPUT
+          echo "node_version=${node_version}" >> $GITHUB_OUTPUT
 
   create-or-update-weekly-branch:
     needs: [ validate-inputs ]
@@ -87,7 +122,7 @@ jobs:
     with:
       weekly_version: ${{ needs.validate-inputs.outputs.weekly_version }}
       node_version: ${{ needs.validate-inputs.outputs.node_version }}
-      is_new_weekly: ${{ inputs.is_new_weekly }}
+      is_new_weekly: ${{ github.event_name == 'schedule' || inputs.is_new_weekly }}
     secrets: inherit
   tag-weekly-rc:
     needs: [ validate-inputs, create-or-update-weekly-branch ]
@@ -119,14 +154,14 @@ jobs:
       contents: read
 
   build-weekly-rc-docker-images:
-    needs: [ tag-weekly-rc, build-weekly-rc ]
+    needs: [ validate-inputs, tag-weekly-rc, build-weekly-rc ]
     uses: ./.github/workflows/release-50_publish-docker.yml
     with:
       binary: ${{ inputs.binary }}
       weekly_release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
       registry: docker.io
       owner: parity
-      version: ${{ inputs.node_version }}
+      version: ${{ needs.validate-inputs.outputs.node_version }}
       build_run_id: ${{ github.run_id }}
     secrets: inherit
     permissions:
