@@ -23,6 +23,7 @@ on:
       binary:
         description: Binary to be build for the release
         default: all
+        required: true
         type: choice
         options:
           - all
@@ -31,6 +32,7 @@ on:
           # - polkadot-omni-node
           # - frame-omni-bencher
           # - chain-spec-builder
+
       chain:
         description: The chain to use
         default: all
@@ -45,6 +47,7 @@ on:
           - coretime-westend
           - glutton-westend
           - people-westend
+
       runtime_dir:
         description: The runtime dir to be used (⚠️ this parameter is optional and needed only in case of the single runtime build, set it accordingly to the runtime you want to build)
         type: choice
@@ -63,9 +66,13 @@ jobs:
     outputs:
       weekly_version: ${{ steps.calculate_weekly.outputs.weekly_version }}
       node_version: ${{ steps.calculate_weekly.outputs.node_version }}
+      binary: ${{ steps.calculate_weekly.outputs.binary }}
+      chain: ${{ steps.calculate_weekly.outputs.chain }}
+      runtime_dir: ${{ steps.calculate_weekly.outputs.runtime_dir }}
+      is_new_weekly: ${{ steps.calculate_weekly.outputs.is_new_weekly }}
 
     steps:
-      - name: Calculate weekly version
+      - name: Calculate weekly version and set defaults
         id: calculate_weekly
         run: |
           # Get current year and week number
@@ -79,11 +86,32 @@ jobs:
           latest_node_version=$(docker run --rm parity/polkadot:latest --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
           node_version="${latest_node_version}-${weekly_version}"
 
+          # Set default values for cron triggers
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            binary="all"
+            chain="all"
+            is_new_weekly="true"
+          else
+            # For manual triggers, use input values
+            binary="${{ inputs.binary }}"
+            chain="${{ inputs.chain }}"
+            runtime_dir="${{ inputs.runtime_dir }}"
+            is_new_weekly="${{ inputs.is_new_weekly }}"
+          fi
+
           echo "weekly_version=${weekly_version}" >> $GITHUB_OUTPUT
           echo "node_version=${node_version}" >> $GITHUB_OUTPUT
+          echo "binary=${binary}" >> $GITHUB_OUTPUT
+          echo "chain=${chain}" >> $GITHUB_OUTPUT
+          echo "runtime_dir=${runtime_dir}" >> $GITHUB_OUTPUT
+          echo "is_new_weekly=${is_new_weekly}" >> $GITHUB_OUTPUT
 
           echo "Generated weekly version: ${weekly_version}"
           echo "Generated node version: ${node_version}"
+          echo "Binary: ${binary}"
+          echo "Chain: ${chain}"
+          echo "Runtime dir: ${runtime_dir}"
+          echo "Is new weekly: ${is_new_weekly}"
 
   validate-inputs:
     runs-on: parity-default
@@ -118,12 +146,12 @@ jobs:
           echo "node_version=${node_version}" >> $GITHUB_OUTPUT
 
   create-or-update-weekly-branch:
-    needs: [ validate-inputs ]
+    needs: [ validate-inputs, calculate-weekly-version ]
     uses: ./.github/workflows/release-10_branchoff-weekly.yml
     with:
       weekly_version: ${{ needs.validate-inputs.outputs.weekly_version }}
       node_version: ${{ needs.validate-inputs.outputs.node_version }}
-      is_new_weekly: ${{ github.event_name == 'schedule' || inputs.is_new_weekly }}
+      is_new_weekly: ${{ needs.calculate-weekly-version.outputs.is_new_weekly }}
     secrets: inherit
   tag-weekly-rc:
     needs: [ validate-inputs, create-or-update-weekly-branch ]
@@ -131,11 +159,12 @@ jobs:
     with:
       weekly_version: ${{ needs.validate-inputs.outputs.weekly_version }}
     secrets: inherit
+
   build-weekly-rc:
-    needs: [ tag-weekly-rc ]
+    needs: [ tag-weekly-rc, calculate-weekly-version ]
     uses: ./.github/workflows/release-20_build-rc.yml
     with:
-      binary: ${{ inputs.binary }}
+      binary: ${{ needs.calculate-weekly-version.outputs.binary }}
       weekly_release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
     permissions:
       id-token: write
@@ -143,11 +172,11 @@ jobs:
       contents: read
 
   build-runtimes:
-    needs: [ tag-weekly-rc ]
+    needs: [ tag-weekly-rc, calculate-weekly-version ]
     uses: ./.github/workflows/release-21_build-runtimes.yml
     with:
-      chain: ${{ inputs.chain }}
-      runtime_dir: ${{ inputs.runtime_dir }}
+      chain: ${{ needs.calculate-weekly-version.outputs.chain }}
+      runtime_dir: ${{ needs.calculate-weekly-version.outputs.runtime_dir }}
       weekly_release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
     permissions:
       id-token: write
@@ -155,10 +184,10 @@ jobs:
       contents: read
 
   build-weekly-rc-docker-images:
-    needs: [ validate-inputs, tag-weekly-rc, build-weekly-rc ]
+    needs: [ validate-inputs, calculate-weekly-version, tag-weekly-rc, build-weekly-rc ]
     uses: ./.github/workflows/release-50_publish-docker.yml
     with:
-      binary: ${{ inputs.binary }}
+      binary: ${{ needs.calculate-weekly-version.outputs.binary }}
       weekly_release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
       registry: docker.io
       owner: parity
