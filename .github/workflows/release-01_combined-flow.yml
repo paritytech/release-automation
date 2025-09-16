@@ -3,7 +3,7 @@ name: Release - Combined release flow
 on:
   schedule:
     # Run every Wednesday at 9:00 PM UTC
-    - cron: '3 15 * * *'
+    - cron: '30 7 * * *'
   workflow_dispatch:
     inputs:
       weekly_version:
