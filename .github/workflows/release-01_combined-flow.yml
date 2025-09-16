@@ -3,7 +3,7 @@ name: Release - Combined release flow
 on:
   schedule:
     # Run every Wednesday at 9:00 PM UTC
-    - cron: '55 8 * * *'
+    - cron: '01 12 * * *'
   workflow_dispatch:
     inputs:
       weekly_version:
@@ -151,7 +151,7 @@ jobs:
     with:
       weekly_version: ${{ needs.validate-inputs.outputs.weekly_version }}
       node_version: ${{ needs.validate-inputs.outputs.node_version }}
-      is_new_weekly: ${{ needs.calculate-weekly-version.outputs.is_new_weekly }}
+      is_new_weekly: ${{ needs.calculate-weekly-version.outputs.is_new_weekly == 'true' }}
     secrets: inherit
   tag-weekly-rc:
     needs: [ validate-inputs, create-or-update-weekly-branch ]
