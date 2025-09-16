@@ -76,7 +76,7 @@ jobs:
           weekly_version="weekly${current_year}w${current_week}"
 
           # Generate node version (using a placeholder version number)
-          latest_node_version=$(docker run --platform linux/amd64 --rm -it parity/polkadot:latest --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          latest_node_version=$(docker run --rm parity/polkadot:latest --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
           node_version="${latest_node_version}-${weekly_version}"
 
           echo "weekly_version=${weekly_version}" >> $GITHUB_OUTPUT
