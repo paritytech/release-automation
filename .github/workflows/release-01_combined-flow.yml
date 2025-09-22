@@ -72,15 +72,15 @@ jobs:
       is_new_weekly: ${{ steps.calculate_weekly.outputs.is_new_weekly }}
 
     steps:
+      - name: Checkout release-automation scripts
+        uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
+
       - name: Calculate weekly version and set defaults
         id: calculate_weekly
         run: |
-          # Get current year and week number
-          current_year=$(date +%Y)
-          current_week=$(date +%V)
+          . ./.github/scripts/common/lib.sh
 
-          # Generate weekly version in format weeklyYYYYw#
-          weekly_version="weekly${current_year}w${current_week}"
+          weekly_version=$(get_current_weekly_version)
 
           # Generate node version (using a placeholder version number)
           latest_node_version=$(docker run --rm parity/polkadot:latest --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
