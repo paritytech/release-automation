@@ -100,7 +100,7 @@ jobs:
 
       - name: Import gpg keys
         run: |
-          . ./release-automation/.github/scripts/common/lib.sh
+          . ./.github/scripts/common/lib.sh
 
           import_gpg_keys
 
