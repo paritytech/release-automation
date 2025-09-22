@@ -112,13 +112,13 @@ jobs:
           git config --global user.email "release-team@parity.io"
           git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
 
-      - name: List existing weekly branches
-        shell: bash
-        run: |
-          ls ${{github.workspace}}
-          . ./release-automation/.github/scripts/common/lib.sh
-          echo "📋 Current weekly branches:"
-          list_weekly_branches
+      # - name: List existing weekly branches
+      #   shell: bash
+      #   run: |
+      #     ls ${{github.workspace}}
+      #     . ./release-automation/.github/scripts/common/lib.sh
+      #     echo "📋 Current weekly branches:"
+      #     list_weekly_branches
 
       - name: Find base branch and create weekly release branch
         shell: bash
