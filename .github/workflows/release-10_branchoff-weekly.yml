@@ -100,7 +100,7 @@ jobs:
 
       - name: Import gpg keys
         run: |
-          . ./scripts/.github/scripts/common/lib.sh
+          . ./.github/scripts/common/lib.sh
 
           import_gpg_keys
 
@@ -123,6 +123,7 @@ jobs:
       - name: Find base branch and create weekly release branch
         shell: bash
         run: |
+          ls ${{github.workspace}}
           . ./scripts/.github/scripts/common/lib.sh
 
           echo "🚀 Creating weekly release branch: $WEEKLY_BRANCH_NAME"
