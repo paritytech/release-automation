@@ -86,17 +86,20 @@ jobs:
             private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
             owner: paritytech
 
-      - name: Checkout release-automation scripts
-        uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
-        with:
-          path: release-automation
-
       - name: Checkout polkadot-sdk sources
         uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
         with:
           repository: paritytech/polkadot-sdk
           ref: master
           token: ${{ steps.generate_write_token.outputs.token }}
+
+      - name: Checkout release-automation scripts
+        uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
+        with:
+          repository: paritytech/release-automation
+          ref: master
+          token: ${{ steps.generate_write_token.outputs.token }}
+          path: release-automation
 
       - name: Import gpg keys
         run: |
@@ -115,16 +118,15 @@ jobs:
       - name: List existing weekly branches
         shell: bash
         run: |
-          pwd
-          ls ${{ github.workspace }}
-          . .${{ github.workspace }}/release-automation/.github/scripts/common/lib.sh
+          ls ${{github.workspace}}
+          . ./release-automation/.github/scripts/common/lib.sh
           echo "📋 Current weekly branches:"
           list_weekly_branches
 
       - name: Find base branch and create weekly release branch
         shell: bash
         run: |
-          . .${{ github.workspace }}/release-automation/.github/scripts/common/lib.sh
+          . ./release-automation/.github/scripts/common/lib.sh
 
           echo "🚀 Creating weekly release branch: $WEEKLY_BRANCH_NAME"
 
