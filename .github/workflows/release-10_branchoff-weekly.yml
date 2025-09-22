@@ -86,6 +86,11 @@ jobs:
             private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
             owner: paritytech
 
+      - name: Checkout release-automation scripts
+        uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
+        with:
+          path: scripts
+
       - name: Checkout polkadot-sdk sources
         uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
         with:
@@ -93,14 +98,9 @@ jobs:
           ref: master
           token: ${{ steps.generate_write_token.outputs.token }}
 
-      - name: Checkout release-automation scripts
-        uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
-        with:
-          path: release-automation
-
       - name: Import gpg keys
         run: |
-          . ./.github/scripts/common/lib.sh
+          . ./scripts/.github/scripts/common/lib.sh
 
           import_gpg_keys
 
@@ -123,7 +123,7 @@ jobs:
       - name: Find base branch and create weekly release branch
         shell: bash
         run: |
-          . ./release-automation/.github/scripts/common/lib.sh
+          . ./scripts/.github/scripts/common/lib.sh
 
           echo "🚀 Creating weekly release branch: $WEEKLY_BRANCH_NAME"
 
@@ -194,7 +194,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
         run: |
-          . ./.github/scripts/release/release_lib.sh
+          . ./scripts/.github/scripts/release/release_lib.sh
 
           if [ "${{ inputs.is_new_weekly }}" = true ]; then
             NODE_VERSION="${{ needs.validate-inputs.outputs.node_version }}"
