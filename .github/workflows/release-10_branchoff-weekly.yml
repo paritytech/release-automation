@@ -116,7 +116,7 @@ jobs:
         shell: bash
         run: |
           pwd
-          ls .${{ github.workspace }}/release-automation/
+          ls ${{ github.workspace }}/release-automation/
           . .${{ github.workspace }}/release-automation/.github/scripts/common/lib.sh
           echo "📋 Current weekly branches:"
           list_weekly_branches
