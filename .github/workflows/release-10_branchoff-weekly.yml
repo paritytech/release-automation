@@ -115,14 +115,14 @@ jobs:
       - name: List existing weekly branches
         shell: bash
         run: |
-          . ./release-automation/.github/scripts/common/lib.sh
+          . .${{ github.workspace }}/release-automation/.github/scripts/common/lib.sh
           echo "📋 Current weekly branches:"
           list_weekly_branches
 
       - name: Find base branch and create weekly release branch
         shell: bash
         run: |
-          . ./release-automation/.github/scripts/common/lib.sh
+          . .${{ github.workspace }}/release-automation/.github/scripts/common/lib.sh
 
           echo "🚀 Creating weekly release branch: $WEEKLY_BRANCH_NAME"
 
