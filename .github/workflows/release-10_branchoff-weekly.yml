@@ -128,8 +128,8 @@ jobs:
         shell: bash
         working-directory: ${{github.workspace}}/polkadot-sdk
         run: |
-          ls .${{github.workspace}}/scripts/.github/scripts
-          . .${{github.workspace}}/scripts/.github/scripts/common/lib.sh
+          ls ${{github.workspace}}/scripts/.github/scripts
+          . ${{github.workspace}}/scripts/.github/scripts/common/lib.sh
           echo "📋 Current weekly branches:"
           list_weekly_branches
 
