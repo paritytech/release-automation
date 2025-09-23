@@ -84,7 +84,8 @@ jobs:
 
           # Generate node version (using a placeholder version number)
           latest_node_version=$(docker run --rm parity/polkadot:latest --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-          node_version="${latest_node_version}-${weekly_version}"
+          patched_node_version=$(echo "$latest_node_version" | awk -F. '{print $1"."$2"."$3+1}')
+          node_version="${patched_node_version}-${weekly_version}"
 
           # Set default values for cron triggers
           if [ "${{ github.event_name }}" = "schedule" ]; then
