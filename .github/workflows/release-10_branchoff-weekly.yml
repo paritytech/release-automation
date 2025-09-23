@@ -167,7 +167,7 @@ jobs:
           # Try to find the previous weekly branch first
           if [ "${{ inputs.is_new_weekly }}" = true ]; then
             # BASE_BRANCH=$(find_previous_weekly_branch "$WEEKLY_BRANCH_NAME")
-            LATEST_WEEKLY_BRANCH=$(git branch -r | grep -E 'origin/weekly[0-9]{4}w[0-9]+' | sed 's/origin\///' | sort -Vr | head -n1)
+            LATEST_WEEKLY_BRANCH=$(git branch -r | grep -E 'origin/weekly[0-9]{4}w[0-9]+' | sed 's/origin\///' | awk '{print $1}' | sort -Vr | head -n1)
             if [ $? -eq 0 ] && [ -n "$LATEST_WEEKLY_BRANCH" ]; then
               echo "✅ Found previous weekly branch: $LATEST_WEEKLY_BRANCH"
               BASE_BRANCH="$LATEST_WEEKLY_BRANCH"
