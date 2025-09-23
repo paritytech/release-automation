@@ -97,146 +97,157 @@ jobs:
           repository: paritytech/polkadot-sdk
           ref: master
           token: ${{ steps.generate_write_token.outputs.token }}
+          path: polkadot-sdk
 
-      - name: Import gpg keys
-        run: |
-          . ./.github/scripts/common/lib.sh
-
-          import_gpg_keys
-
-      - name: Config git
-        run: |
-          git config --global commit.gpgsign true
-          git config --global gpg.program /usr/local/bin/pgpkms-git
-          git config --global user.name "ParityReleases"
-          git config --global user.email "release-team@parity.io"
-          git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
-
-      # - name: List existing weekly branches
-      #   shell: bash
-      #   run: |
-      #     ls ${{github.workspace}}
-      #     . ./release-automation/.github/scripts/common/lib.sh
-      #     echo "📋 Current weekly branches:"
-      #     list_weekly_branches
-
-      - name: Find base branch and create weekly release branch
+      - name: List workspace
         shell: bash
         run: |
+          echo "Workspace:"
+          ls ${{github.workspace}}
+          echo "Scripts:"
           ls ${{github.workspace}}/scripts
-          . ./scripts/.github/scripts/common/lib.sh
+          echo "Polkadot-sdk:"
+          ls ${{github.workspace}}/polkadot-sdk
 
-          echo "🚀 Creating weekly release branch: $WEEKLY_BRANCH_NAME"
+      # - name: Import gpg keys
+      #   run: |
+      #     . ./.github/scripts/common/lib.sh
 
-          # Fetch all remote branches
-          git fetch origin
+      #     import_gpg_keys
 
-          # Check if the weekly branch already exists
-          if git rev-parse --verify -q origin/"$WEEKLY_BRANCH_NAME" &>/dev/null; then
-            echo "✅ Weekly branch '$WEEKLY_BRANCH_NAME' already exists, checking it out"
-            git checkout -q origin/"$WEEKLY_BRANCH_NAME"
-            git show-ref "$WEEKLY_BRANCH_NAME"
-            exit 0
-          fi
+      # - name: Config git
+      #   run: |
+      #     git config --global commit.gpgsign true
+      #     git config --global gpg.program /usr/local/bin/pgpkms-git
+      #     git config --global user.name "ParityReleases"
+      #     git config --global user.email "release-team@parity.io"
+      #     git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
 
-          # Find the base branch for creating the new weekly branch
-          echo "🔍 Finding base branch for new weekly release..."
+      # # - name: List existing weekly branches
+      # #   shell: bash
+      # #   run: |
+      # #     ls ${{github.workspace}}
+      # #     . ./release-automation/.github/scripts/common/lib.sh
+      # #     echo "📋 Current weekly branches:"
+      # #     list_weekly_branches
 
-          # Try to find the previous weekly branch first
-          if [ "${{ inputs.is_new_weekly }}" = true ]; then
-            BASE_BRANCH=$(find_previous_weekly_branch "$WEEKLY_BRANCH_NAME")
-            if [ $? -eq 0 ] && [ -n "$BASE_BRANCH" ]; then
-              echo "✅ Found previous weekly branch: $BASE_BRANCH"
-            else
-              # Fall back to latest weekly branch
-              BASE_BRANCH=$(find_latest_weekly_branch)
-              if [ $? -eq 0 ] && [ -n "$BASE_BRANCH" ]; then
-                echo "✅ Using latest weekly branch as base: $BASE_BRANCH"
-              else
-                echo "⚠️  No weekly branches found, using master as base"
-                BASE_BRANCH="master"
-              fi
-            fi
-          else
-            # For existing weekly branches, use master as base
-            BASE_BRANCH="master"
-            echo "✅ Using master as base for existing weekly branch"
-          fi
+      # - name: Find base branch and create weekly release branch
+      #   shell: bash
+      #   run: |
+      #     ls ${{github.workspace}}/scripts
+      #     . ./scripts/.github/scripts/common/lib.sh
 
-          # Checkout the base branch
-          echo "📋 Checking out base branch: $BASE_BRANCH"
-          if ! git checkout -q "origin/$BASE_BRANCH"; then
-            echo "❌ Failed to checkout base branch: $BASE_BRANCH"
-            exit 1
-          fi
+      #     echo "🚀 Creating weekly release branch: $WEEKLY_BRANCH_NAME"
 
-          # Create new weekly branch from base
-          echo "🌿 Creating new branch '$WEEKLY_BRANCH_NAME' from '$BASE_BRANCH'"
-          if ! git checkout -b "$WEEKLY_BRANCH_NAME"; then
-            echo "❌ Failed to create new branch: $WEEKLY_BRANCH_NAME"
-            exit 1
-          fi
+      #     # Fetch all remote branches
+      #     git fetch origin
 
-          # If we're creating from a previous weekly branch, merge master to get latest changes
-          if [ "${{ inputs.is_new_weekly }}" = true ] && [ "$BASE_BRANCH" != "master" ]; then
-            echo "🔄 Merging master into '$WEEKLY_BRANCH_NAME' to get latest changes..."
-            git fetch origin master
-            if ! git merge -q origin/master --no-edit; then
-              echo "❌ Failed to merge master into '$WEEKLY_BRANCH_NAME'"
-              echo "⚠️  Manual resolution may be required"
-              exit 1
-            fi
-            echo "✅ Successfully merged master into '$WEEKLY_BRANCH_NAME'"
-          fi
+      #     # Check if the weekly branch already exists
+      #     if git rev-parse --verify -q origin/"$WEEKLY_BRANCH_NAME" &>/dev/null; then
+      #       echo "✅ Weekly branch '$WEEKLY_BRANCH_NAME' already exists, checking it out"
+      #       git checkout -q origin/"$WEEKLY_BRANCH_NAME"
+      #       git show-ref "$WEEKLY_BRANCH_NAME"
+      #       exit 0
+      #     fi
 
-          git show-ref "$WEEKLY_BRANCH_NAME"
+      #     # Find the base branch for creating the new weekly branch
+      #     echo "🔍 Finding base branch for new weekly release..."
 
-      - name: Bump versions, reorder prdocs and push weekly branch
-        env:
-          GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
-        run: |
-          . ./scripts/.github/scripts/release/release_lib.sh
+      #     # Try to find the previous weekly branch first
+      #     if [ "${{ inputs.is_new_weekly }}" = true ]; then
+      #       BASE_BRANCH=$(find_previous_weekly_branch "$WEEKLY_BRANCH_NAME")
+      #       if [ $? -eq 0 ] && [ -n "$BASE_BRANCH" ]; then
+      #         echo "✅ Found previous weekly branch: $BASE_BRANCH"
+      #       else
+      #         # Fall back to latest weekly branch
+      #         BASE_BRANCH=$(find_latest_weekly_branch)
+      #         if [ $? -eq 0 ] && [ -n "$BASE_BRANCH" ]; then
+      #           echo "✅ Using latest weekly branch as base: $BASE_BRANCH"
+      #         else
+      #           echo "⚠️  No weekly branches found, using master as base"
+      #           BASE_BRANCH="master"
+      #         fi
+      #       fi
+      #     else
+      #       # For existing weekly branches, use master as base
+      #       BASE_BRANCH="master"
+      #       echo "✅ Using master as base for existing weekly branch"
+      #     fi
 
-          if [ "${{ inputs.is_new_weekly }}" = true ]; then
-            NODE_VERSION="${{ needs.validate-inputs.outputs.node_version }}"
-            NODE_VERSION_PATTERN="\(NODE_VERSION[^=]*= \)\".*\""
-            set_version "$NODE_VERSION_PATTERN" $NODE_VERSION "polkadot/node/primitives/src/lib.rs"
-            commit_with_message "Bump node version to $NODE_VERSION in polkadot-cli"
-            set_version "$NODE_VERSION_PATTERN" $NODE_VERSION "cumulus/polkadot-omni-node/lib/src/nodes/mod.rs"
-            commit_with_message "Bump node version to $NODE_VERSION in polkadot-omni-node-lib"
+      #     # Checkout the base branch
+      #     echo "📋 Checking out base branch: $BASE_BRANCH"
+      #     if ! git checkout -q "origin/$BASE_BRANCH"; then
+      #       echo "❌ Failed to checkout base branch: $BASE_BRANCH"
+      #       exit 1
+      #     fi
 
-            SPEC_VERSION=$(get_spec_version $NODE_VERSION)
-            runtimes_list=$(get_filtered_runtimes_list)
-            set_spec_versions $SPEC_VERSION "${runtimes_list[@]}"
-          fi
+      #     # Create new weekly branch from base
+      #     echo "🌿 Creating new branch '$WEEKLY_BRANCH_NAME' from '$BASE_BRANCH'"
+      #     if ! git checkout -b "$WEEKLY_BRANCH_NAME"; then
+      #       echo "❌ Failed to create new branch: $WEEKLY_BRANCH_NAME"
+      #       exit 1
+      #     fi
 
-          # reorder_prdocs $WEEKLY_BRANCH_NAME
+      #     # If we're creating from a previous weekly branch, merge master to get latest changes
+      #     if [ "${{ inputs.is_new_weekly }}" = true ] && [ "$BASE_BRANCH" != "master" ]; then
+      #       echo "🔄 Merging master into '$WEEKLY_BRANCH_NAME' to get latest changes..."
+      #       git fetch origin master
+      #       if ! git merge -q origin/master --no-edit; then
+      #         echo "❌ Failed to merge master into '$WEEKLY_BRANCH_NAME'"
+      #         echo "⚠️  Manual resolution may be required"
+      #         exit 1
+      #       fi
+      #       echo "✅ Successfully merged master into '$WEEKLY_BRANCH_NAME'"
+      #     fi
 
-          #VERSION=$(sed -E 's/^v([0-9]+\.[0-9]+\.[0-9]+).*$/\1/' <<< "$NODE_VERSION") #getting reed of the 'v' prefix
+      #     git show-ref "$WEEKLY_BRANCH_NAME"
 
-          # Check if there are any pr_*.prdoc files in the root directory
-          shopt -s nullglob
-          files=(prdoc/pr_*.prdoc)
-          shopt -u nullglob
-          if [ ${#files[@]} -eq 0 ]; then
-              echo "No pr_*.prdoc files found, skipping.🤝"
-          else
-            echo "[+] ℹ️ Reordering prdocs:"
-            mkdir -p "prdoc/$WEEKLY_BRANCH_NAME"
-            mv prdoc/pr_*.prdoc prdoc/$WEEKLY_BRANCH_NAME
-            git add -A
-            commit_with_message "Reordering prdocs for the release $WEEKLY_BRANCH_NAME"
-          fi
+      # - name: Bump versions, reorder prdocs and push weekly branch
+      #   env:
+      #     GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
+      #   run: |
+      #     . ./scripts/.github/scripts/release/release_lib.sh
 
-          gh auth setup-git
-          if git rev-parse --verify -q origin/"$WEEKLY_BRANCH_NAME" >/dev/null; then
-            # Remote branch exists, check for new commits
-            if git rev-list origin/"$WEEKLY_BRANCH_NAME"..HEAD --count | grep -qv '^0$'; then
-              git push origin "$WEEKLY_BRANCH_NAME"
-            else
-              echo "No new commits to push, skipping push."
-            fi
-          else
-            # Remote branch does not exist, push it
-            git push origin "$WEEKLY_BRANCH_NAME"
-          fi
+      #     if [ "${{ inputs.is_new_weekly }}" = true ]; then
+      #       NODE_VERSION="${{ needs.validate-inputs.outputs.node_version }}"
+      #       NODE_VERSION_PATTERN="\(NODE_VERSION[^=]*= \)\".*\""
+      #       set_version "$NODE_VERSION_PATTERN" $NODE_VERSION "polkadot/node/primitives/src/lib.rs"
+      #       commit_with_message "Bump node version to $NODE_VERSION in polkadot-cli"
+      #       set_version "$NODE_VERSION_PATTERN" $NODE_VERSION "cumulus/polkadot-omni-node/lib/src/nodes/mod.rs"
+      #       commit_with_message "Bump node version to $NODE_VERSION in polkadot-omni-node-lib"
+
+      #       SPEC_VERSION=$(get_spec_version $NODE_VERSION)
+      #       runtimes_list=$(get_filtered_runtimes_list)
+      #       set_spec_versions $SPEC_VERSION "${runtimes_list[@]}"
+      #     fi
+
+      #     # reorder_prdocs $WEEKLY_BRANCH_NAME
+
+      #     #VERSION=$(sed -E 's/^v([0-9]+\.[0-9]+\.[0-9]+).*$/\1/' <<< "$NODE_VERSION") #getting reed of the 'v' prefix
+
+      #     # Check if there are any pr_*.prdoc files in the root directory
+      #     shopt -s nullglob
+      #     files=(prdoc/pr_*.prdoc)
+      #     shopt -u nullglob
+      #     if [ ${#files[@]} -eq 0 ]; then
+      #         echo "No pr_*.prdoc files found, skipping.🤝"
+      #     else
+      #       echo "[+] ℹ️ Reordering prdocs:"
+      #       mkdir -p "prdoc/$WEEKLY_BRANCH_NAME"
+      #       mv prdoc/pr_*.prdoc prdoc/$WEEKLY_BRANCH_NAME
+      #       git add -A
+      #       commit_with_message "Reordering prdocs for the release $WEEKLY_BRANCH_NAME"
+      #     fi
+
+      #     gh auth setup-git
+      #     if git rev-parse --verify -q origin/"$WEEKLY_BRANCH_NAME" >/dev/null; then
+      #       # Remote branch exists, check for new commits
+      #       if git rev-list origin/"$WEEKLY_BRANCH_NAME"..HEAD --count | grep -qv '^0$'; then
+      #         git push origin "$WEEKLY_BRANCH_NAME"
+      #       else
+      #         echo "No new commits to push, skipping push."
+      #       fi
+      #     else
+      #       # Remote branch does not exist, push it
+      #       git push origin "$WEEKLY_BRANCH_NAME"
+      #     fi
