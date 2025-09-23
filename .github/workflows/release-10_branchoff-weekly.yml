@@ -90,68 +90,32 @@ jobs:
         uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
         with:
           repository: paritytech/polkadot-sdk
-          ref: master
+          # ref: master
           token: ${{ steps.generate_write_token.outputs.token }}
-          # path: polkadot-sdk
-
-      # - name: Checkout release-automation scripts
-      #   uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
-      #   with:
-      #     path: scripts
+          fetch-depth: 0
 
       - name: Import gpg keys
-        # working-directory: ${{github.workspace}}/polkadot-sdk
         run: |
           . ./.github/scripts/common/lib.sh
 
           import_gpg_keys
 
       - name: Config git
-        # working-directory: ${{github.workspace}}/polkadot-sdk
         run: |
           git config --global commit.gpgsign true
           git config --global gpg.program /usr/local/bin/pgpkms-git
           git config --global user.name "ParityReleases"
           git config --global user.email "release-team@parity.io"
           git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
-
-      # - name: List existing weekly branches
-      #   shell: bash
-      #   # working-directory: ${{github.workspace}}/polkadot-sdk
-      #   env:
-      #     GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
-      #   run: |
-      #     branches=($(git branch -r | grep -E 'origin/weekly[0-9]{4}w[0-9]+' | sed 's/origin\///' | sort -Vr))
-
-      #     if [ ${#branches[@]} -eq 0 ]; then
-      #         echo "No weekly branches found"
-      #         return 0
-      #     fi
-
-      #     echo "📋 Weekly Release Branches:"
-      #     echo "========================"
-
-      #     for branch in "${branches[@]}"; do
-      #         last_commit=$(git log -1 --format="%h %s" "origin/$branch" 2>/dev/null || echo "N/A")
-      #         last_date=$(git log -1 --format="%ci" "origin/$branch" 2>/dev/null || echo "N/A")
-      #         echo "📁 $branch"
-      #         echo "   Last commit: $last_commit"
-      #         echo "   Date: $last_date"
-      #         echo
-      #     done
-
       - name: Find base branch and create weekly release branch
         shell: bash
-        # working-directory: ${{github.workspace}}/polkadot-sdk
         env:
           GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
         run: |
-          # . ${{github.workspace}}/scripts/.github/scripts/common/lib.sh
-
           echo "🚀 Creating or switching to weekly release branch: $WEEKLY_BRANCH_NAME"
 
           # Fetch all remote branches
-          git fetch origin
+          git fetch origin --all
 
           # Check if the weekly branch already exists
           if git rev-parse --verify -q origin/"$WEEKLY_BRANCH_NAME" &>/dev/null; then
@@ -166,7 +130,6 @@ jobs:
 
           # Try to find the previous weekly branch first
           if [ "${{ inputs.is_new_weekly }}" = true ]; then
-            # BASE_BRANCH=$(find_previous_weekly_branch "$WEEKLY_BRANCH_NAME")
             LATEST_WEEKLY_BRANCH=$(git branch -r | grep -E 'origin/weekly[0-9]{4}w[0-9]+' | sed 's/origin\///' | awk '{print $1}' | sort -Vr | head -n1)
             if [ $? -eq 0 ] && [ -n "$LATEST_WEEKLY_BRANCH" ]; then
               echo "✅ Found previous weekly branch: $LATEST_WEEKLY_BRANCH"
