@@ -115,30 +115,30 @@ jobs:
           git config --global user.email "release-team@parity.io"
           git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
 
-      - name: List existing weekly branches
-        shell: bash
-        # working-directory: ${{github.workspace}}/polkadot-sdk
-        env:
-          GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
-        run: |
-          branches=($(git branch -r | grep -E 'origin/weekly[0-9]{4}w[0-9]+' | sed 's/origin\///' | sort -Vr))
+      # - name: List existing weekly branches
+      #   shell: bash
+      #   # working-directory: ${{github.workspace}}/polkadot-sdk
+      #   env:
+      #     GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
+      #   run: |
+      #     branches=($(git branch -r | grep -E 'origin/weekly[0-9]{4}w[0-9]+' | sed 's/origin\///' | sort -Vr))
 
-          if [ ${#branches[@]} -eq 0 ]; then
-              echo "No weekly branches found"
-              return 0
-          fi
+      #     if [ ${#branches[@]} -eq 0 ]; then
+      #         echo "No weekly branches found"
+      #         return 0
+      #     fi
 
-          echo "📋 Weekly Release Branches:"
-          echo "========================"
+      #     echo "📋 Weekly Release Branches:"
+      #     echo "========================"
 
-          for branch in "${branches[@]}"; do
-              last_commit=$(git log -1 --format="%h %s" "origin/$branch" 2>/dev/null || echo "N/A")
-              last_date=$(git log -1 --format="%ci" "origin/$branch" 2>/dev/null || echo "N/A")
-              echo "📁 $branch"
-              echo "   Last commit: $last_commit"
-              echo "   Date: $last_date"
-              echo
-          done
+      #     for branch in "${branches[@]}"; do
+      #         last_commit=$(git log -1 --format="%h %s" "origin/$branch" 2>/dev/null || echo "N/A")
+      #         last_date=$(git log -1 --format="%ci" "origin/$branch" 2>/dev/null || echo "N/A")
+      #         echo "📁 $branch"
+      #         echo "   Last commit: $last_commit"
+      #         echo "   Date: $last_date"
+      #         echo
+      #     done
 
       - name: Find base branch and create weekly release branch
         shell: bash
