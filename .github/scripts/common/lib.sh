@@ -637,6 +637,9 @@ find_latest_weekly_branch() {
 # input: none
 # output: formatted list of weekly branches
 list_weekly_branches() {
+    echo "[+] Getting all weekly release branches:"
+    echo "========================================"
+    git remote -v
     branches=($(git branch -r | grep -E 'origin/weekly[0-9]{4}w[0-9]+' | sed 's/origin\///' | sort -V))
 
     if [ ${#branches[@]} -eq 0 ]; then
