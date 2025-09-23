@@ -127,6 +127,8 @@ jobs:
       # - name: List existing weekly branches
       #   shell: bash
       #   working-directory: ${{github.workspace}}/polkadot-sdk
+      #   env:
+      #     GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
       #   run: |
       #     ls ${{github.workspace}}/scripts/.github/scripts
       #     . ${{github.workspace}}/scripts/.github/scripts/common/lib.sh
@@ -136,7 +138,8 @@ jobs:
       - name: Find base branch and create weekly release branch
         shell: bash
         working-directory: ${{github.workspace}}/polkadot-sdk
-        if: inputs.is_new_weekly == true
+        env:
+          GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
         run: |
           . ${{github.workspace}}/scripts/.github/scripts/common/lib.sh
 
