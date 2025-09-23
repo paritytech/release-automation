@@ -112,6 +112,7 @@ jobs:
       - name: Import gpg keys
         working-directory: ${{github.workspace}}/polkadot-sdk
         run: |
+          ls .github/scripts
           . ./.github/scripts/common/lib.sh
 
           import_gpg_keys
@@ -129,6 +130,7 @@ jobs:
         shell: bash
         working-directory: ${{github.workspace}}/polkadot-sdk
         run: |
+          ls .${{github.workspace}}/scripts/.github/scripts
           . .${{github.workspace}}/scripts/.github/scripts/common/lib.sh
           echo "📋 Current weekly branches:"
           list_weekly_branches
