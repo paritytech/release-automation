@@ -109,27 +109,29 @@ jobs:
           echo "Polkadot-sdk:"
           ls ${{github.workspace}}/polkadot-sdk
 
-      # - name: Import gpg keys
-      #   run: |
-      #     . ./.github/scripts/common/lib.sh
+      - name: Import gpg keys
+        working-directory: ${{github.workspace}}/polkadot-sdk
+        run: |
+          . ./.github/scripts/common/lib.sh
 
-      #     import_gpg_keys
+          import_gpg_keys
 
-      # - name: Config git
-      #   run: |
-      #     git config --global commit.gpgsign true
-      #     git config --global gpg.program /usr/local/bin/pgpkms-git
-      #     git config --global user.name "ParityReleases"
-      #     git config --global user.email "release-team@parity.io"
-      #     git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
+      - name: Config git
+        working-directory: ${{github.workspace}}/polkadot-sdk
+        run: |
+          git config --global commit.gpgsign true
+          git config --global gpg.program /usr/local/bin/pgpkms-git
+          git config --global user.name "ParityReleases"
+          git config --global user.email "release-team@parity.io"
+          git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
 
-      # # - name: List existing weekly branches
-      # #   shell: bash
-      # #   run: |
-      # #     ls ${{github.workspace}}
-      # #     . ./release-automation/.github/scripts/common/lib.sh
-      # #     echo "📋 Current weekly branches:"
-      # #     list_weekly_branches
+      - name: List existing weekly branches
+        shell: bash
+        working-directory: ${{github.workspace}}/polkadot-sdk
+        run: |
+          . .${{github.workspace}}/scripts/.github/scripts/common/lib.sh
+          echo "📋 Current weekly branches:"
+          list_weekly_branches
 
       # - name: Find base branch and create weekly release branch
       #   shell: bash
