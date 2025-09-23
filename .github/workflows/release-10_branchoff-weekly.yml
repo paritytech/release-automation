@@ -86,11 +86,6 @@ jobs:
             private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
             owner: paritytech
 
-      - name: Checkout release-automation scripts
-        uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
-        with:
-          path: scripts
-
       - name: Checkout polkadot-sdk sources
         uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
         with:
@@ -98,7 +93,10 @@ jobs:
           ref: master
           token: ${{ steps.generate_write_token.outputs.token }}
           path: polkadot-sdk
-
+      - name: Checkout release-automation scripts
+        uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
+        with:
+          path: scripts
       - name: List workspace
         shell: bash
         run: |
