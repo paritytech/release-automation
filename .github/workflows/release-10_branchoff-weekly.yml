@@ -123,7 +123,7 @@ jobs:
       - name: Find base branch and create weekly release branch
         shell: bash
         run: |
-          ls ${{github.workspace}}
+          ls ${{github.workspace}}/scripts
           . ./scripts/.github/scripts/common/lib.sh
 
           echo "🚀 Creating weekly release branch: $WEEKLY_BRANCH_NAME"
