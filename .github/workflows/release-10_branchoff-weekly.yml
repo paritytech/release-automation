@@ -192,7 +192,16 @@ jobs:
             SUFFIX=$(printf "%03d" "$patch") #to be used in the spec version
             SPEC_VERSION=$(get_spec_version $NODE_VERSION)
             runtimes_list=$(get_filtered_runtimes_list)
-            set_spec_versions $SPEC_VERSION "${runtimes_list[@]}"
+            # set_spec_versions $SPEC_VERSION "${runtimes_list[@]}"
+
+            printf "📋 Setting spec_version to $SPEC_VERSION\n"
+
+            for f in ${runtimes_list[@]}; do
+                printf " 🔄  processing $f"
+                sed -ri "s/spec_version: [0-9]+_[0-9]+_[0-9]+,/spec_version: $SPEC_VERSION,/" $f
+            done
+
+            commit_with_message "Bump spec_version to $SPEC_VERSION"
           fi
 
           # reorder_prdocs $WEEKLY_BRANCH_NAME
