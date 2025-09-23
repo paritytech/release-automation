@@ -194,7 +194,7 @@ jobs:
           if [ "${{ inputs.is_new_weekly }}" = true ] && [ "$BASE_BRANCH" != "master" ]; then
             echo "🔄 Merging master into '$WEEKLY_BRANCH_NAME' to get latest changes..."
             git fetch origin master
-            if ! git merge -q origin/master --no-edit; then
+            if ! git merge -q origin/master --no-edit --allow-unrelated-histories; then
               echo "❌ Failed to merge master into '$WEEKLY_BRANCH_NAME'"
               echo "⚠️  Manual resolution may be required"
               exit 1
