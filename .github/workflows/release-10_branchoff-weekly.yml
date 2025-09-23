@@ -136,6 +136,7 @@ jobs:
       - name: Find base branch and create weekly release branch
         shell: bash
         working-directory: ${{github.workspace}}/polkadot-sdk
+        if: inputs.is_new_weekly == true
         run: |
           . ${{github.workspace}}/scripts/.github/scripts/common/lib.sh
 
