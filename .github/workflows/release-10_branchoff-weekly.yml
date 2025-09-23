@@ -172,20 +172,14 @@ jobs:
               echo "✅ Found previous weekly branch: $LATEST_WEEKLY_BRANCH"
               BASE_BRANCH="$LATEST_WEEKLY_BRANCH"
             else
-              # # Fall back to latest weekly branch
-              # BASE_BRANCH=$(find_latest_weekly_branch)
-              # if [ $? -eq 0 ] && [ -n "$BASE_BRANCH" ]; then
-              #   echo "✅ Using latest weekly branch as base: $BASE_BRANCH"
-              # else
               echo "⚠️  No weekly branches found, using master as base"
               BASE_BRANCH="master"
-              # fi
             fi
-          # else
-          #   # For existing weekly branches, use master as base
-          #   BASE_BRANCH="master"
-          #   echo "✅ Using master as base for existing weekly branch"
-          # fi
+          else
+            # For existing weekly branches, use master as base
+            BASE_BRANCH="master"
+            echo "✅ Using master as base for existing weekly branch"
+          fi
 
           # Checkout the base branch
           echo "📋 Checking out base branch: $BASE_BRANCH"
