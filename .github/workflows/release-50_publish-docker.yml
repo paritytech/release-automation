@@ -56,7 +56,7 @@ on:
       binary:
         description: Binary to be published
         required: true
-        default: '[ "polkadot", "polkadot-parachain" ]'
+        default: '[ "polkadot", "polkadot-parachain", "polkadot-omni-node", "chain-spec-builder" ]'
         type: string
 
       registry:
@@ -139,7 +139,7 @@ jobs:
           . ./.github/scripts/common/lib.sh
 
           if [ "$BINARY" == "all" ]; then
-              MATRIX='["polkadot", "polkadot-parachain"]'
+              MATRIX='["polkadot", "polkadot-parachain", "polkadot-omni-node", "chain-spec-builder"]'
               echo $MATRIX
               echo "binaries=$MATRIX" >> $GITHUB_OUTPUT
             else
