@@ -39,7 +39,7 @@ on:
         default: parity
 
       version:
-        description: Version of the polkadot node release in format v1.XX.X-weeklyYYYYw#(-rcX) (e.g. v1.19.0-weekly2025w1-rc1)
+        description: Version of the polkadot node release in format v1.XX.X-weeklyYYYYw# (e.g. v1.19.0-weekly2025w1)
         default: v1.19.0-weekly2025w1
         required: true
 
@@ -74,7 +74,7 @@ on:
         default: parity
 
       version:
-        description: Version of the polkadot node release in format v1.XX.X-weeklyYYYYw#(-rcX) (e.g. v1.19.0-weekly2025w1-rc1)
+        description: Version of the polkadot node release in format v1.XX.X-weeklyYYYYw# (e.g. v1.19.0-weekly2025w1)
         default: v1.19.0-weekly2025w1
         required: true
         type: string
