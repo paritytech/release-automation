@@ -30,8 +30,11 @@ on:
           - polkadot
           - polkadot-parachain
           - polkadot-omni-node
-          # - frame-omni-bencher
-          # - chain-spec-builder
+          - frame-omni-bencher
+          - chain-spec-builder
+          - substrate-node
+          - eth-rpc
+          - subkey
 
       chain:
         description: The chain to use
