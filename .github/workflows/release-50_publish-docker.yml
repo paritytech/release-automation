@@ -261,8 +261,7 @@ jobs:
           ./docker/scripts/polkadot/build-injected.sh $ARTIFACTS_FOLDER
 
       - name: Build Injected Container image for polkadot-omni-node/chain-spec-builder
-      #if: ${{ env.BINARY == 'polkadot-omni-node' || env.BINARY == 'chain-spec-builder' }}
-        if: ${{ matrix.binary == 'polkadot-omni-node' }}
+        if: ${{ matrix.binary == 'polkadot-omni-node' || matrix.binary == 'chain-spec-builder' }}
         env:
           ARTIFACTS_FOLDER: release-artifacts
           IMAGE_NAME: ${{ matrix.binary }}
@@ -300,8 +299,7 @@ jobs:
           password: ${{ secrets.POLKADOT_DOCKERHUB_TOKEN }}
 
       - name: Login to Dockerhub to publish polkadot-omni-node/polkadot-parachain/chain-spec-builder
-        # if: ${{ matrix.binary  == 'polkadot-omni-node' || matrix.binary == 'polkadot-parachain' || matrix.binary == 'chain-spec-builder' }}
-        if: ${{ matrix.binary  == 'polkadot-omni-node' || matrix.binary == 'polkadot-parachain' }}
+        if: ${{ matrix.binary  == 'polkadot-omni-node' || matrix.binary == 'polkadot-parachain' || matrix.binary == 'chain-spec-builder' }}
         uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
         with:
           username: ${{ secrets.CUMULUS_DOCKERHUB_USERNAME }}
