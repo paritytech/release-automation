@@ -29,7 +29,7 @@ on:
           - all
           - polkadot
           - polkadot-parachain
-          # - polkadot-omni-node
+          - polkadot-omni-node
           # - frame-omni-bencher
           # - chain-spec-builder
 
