@@ -90,7 +90,6 @@ jobs:
         uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
         with:
           repository: paritytech/polkadot-sdk
-          # ref: master
           token: ${{ steps.generate_write_token.outputs.token }}
           fetch-depth: 0
 
@@ -107,6 +106,7 @@ jobs:
           git config --global user.name "ParityReleases"
           git config --global user.email "release-team@parity.io"
           git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
+
       - name: Find base branch and create weekly release branch
         shell: bash
         env:
@@ -174,7 +174,6 @@ jobs:
 
       - name: Bump versions, reorder prdocs and push weekly branch
         shell: bash
-        # working-directory: ${{github.workspace}}/polkadot-sdk
         env:
           GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
         run: |
