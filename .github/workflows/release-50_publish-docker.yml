@@ -39,12 +39,12 @@ on:
         default: parity
 
       version:
-        description: Version of the polkadot node release in format v1.XX.X-weeklyYYYYw# (e.g. v1.19.0-weekly2025w1)
+        description: Version of the polkadot node release in format v1.XX.X-weeklyYYYYw#(-rcX) (e.g. v1.19.0-weekly2025w1-rc1)
         default: v1.19.0-weekly2025w1
         required: true
 
       weekly_release_tag:
-        description: Tag matching the actual weekly release version in the format polkadot-weeklyYYYYw# (e.g. polkadot-weekly2025w1)
+        description: Tag matching the actual weekly release version in the format polkadot-weeklyYYYYw#(-rcX) (e.g. polkadot-weekly2025w1-rc1)
         required: true
       build_run_id:
         description: Run ID of the current release workflow run to be used to download the artifacts
@@ -74,13 +74,13 @@ on:
         default: parity
 
       version:
-        description: Version of the polkadot node release in format v1.XX.X-weeklyYYYYw# (e.g. v1.19.0-weekly2025w1)
+        description: Version of the polkadot node release in format v1.XX.X-weeklyYYYYw#(-rcX) (e.g. v1.19.0-weekly2025w1-rc1)
         default: v1.19.0-weekly2025w1
         required: true
         type: string
 
       weekly_release_tag:
-        description: Tag matching the actual weekly release version in the format polkadot-weeklyYYYYw# (e.g. polkadot-weekly2025w1)
+        description: Tag matching the actual weekly release version in the format polkadot-weeklyYYYYw#(-rcX) (e.g. polkadot-weekly2025w1-rc1)
         required: true
         type: string
       build_run_id:
