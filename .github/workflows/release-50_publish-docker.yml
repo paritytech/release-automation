@@ -20,9 +20,9 @@ on:
         options:
           - all
           - polkadot
-          # - polkadot-omni-node
+          - polkadot-omni-node
           - polkadot-parachain
-          # - chain-spec-builder
+          - chain-spec-builder
 
       registry:
         description: Container registry
@@ -44,7 +44,7 @@ on:
         required: true
 
       weekly_release_tag:
-        description: Tag matching the actual weekly release version in the format polkadot-weeklyYYYYw# (e.g. polkadot-weekly2025w1)
+        description: Tag matching the actual weekly release version in the format polkadot-weeklyYYYYw#(-rcX) (e.g. polkadot-weekly2025w1-rc1)
         required: true
       build_run_id:
         description: Run ID of the current release workflow run to be used to download the artifacts
@@ -56,7 +56,7 @@ on:
       binary:
         description: Binary to be published
         required: true
-        default: '[ "polkadot", "polkadot-parachain" ]'
+        default: '[ "polkadot", "polkadot-parachain", "polkadot-omni-node", "chain-spec-builder" ]'
         type: string
 
       registry:
@@ -80,7 +80,7 @@ on:
         type: string
 
       weekly_release_tag:
-        description: Tag matching the actual weekly release version in the format polkadot-weeklyYYYYw# (e.g. polkadot-weekly2025w1)
+        description: Tag matching the actual weekly release version in the format polkadot-weeklyYYYYw#(-rcX) (e.g. polkadot-weekly2025w1-rc1)
         required: true
         type: string
       build_run_id:
@@ -139,7 +139,7 @@ jobs:
           . ./.github/scripts/common/lib.sh
 
           if [ "$BINARY" == "all" ]; then
-              MATRIX='["polkadot", "polkadot-parachain"]'
+              MATRIX='["polkadot", "polkadot-parachain", "polkadot-omni-node", "chain-spec-builder"]'
               echo $MATRIX
               echo "binaries=$MATRIX" >> $GITHUB_OUTPUT
             else
@@ -186,7 +186,7 @@ jobs:
             && sudo apt install gh -y
 
           mkdir -p ${{ github.workspace}}/release-artifacts/
-          gh run download ${{ env.RUN_ID }} --repo paritytech/release-automation --dir ${{ github.workspace}}/release-artifacts -p "polkadot*"
+          gh run download ${{ env.RUN_ID }} --repo paritytech/release-automation --dir ${{ github.workspace}}/release-artifacts -p "*_x86_64-unknown-linux-gnu"
           # move all the downloadedfiles to the root directory
           find ${{ github.workspace}}/release-artifacts -mindepth 2 -type f -print0 | xargs -0 -I{} mv {} ${{ github.workspace}}/release-artifacts/
           # delete all the empty directories
@@ -261,8 +261,7 @@ jobs:
           ./docker/scripts/polkadot/build-injected.sh $ARTIFACTS_FOLDER
 
       - name: Build Injected Container image for polkadot-omni-node/chain-spec-builder
-      #if: ${{ env.BINARY == 'polkadot-omni-node' || env.BINARY == 'chain-spec-builder' }}
-        if: ${{ matrix.binary == 'polkadot-omni-node' }}
+        if: ${{ matrix.binary == 'polkadot-omni-node' || matrix.binary == 'chain-spec-builder' }}
         env:
           ARTIFACTS_FOLDER: release-artifacts
           IMAGE_NAME: ${{ matrix.binary }}
@@ -300,8 +299,7 @@ jobs:
           password: ${{ secrets.POLKADOT_DOCKERHUB_TOKEN }}
 
       - name: Login to Dockerhub to publish polkadot-omni-node/polkadot-parachain/chain-spec-builder
-        # if: ${{ matrix.binary  == 'polkadot-omni-node' || matrix.binary == 'polkadot-parachain' || matrix.binary == 'chain-spec-builder' }}
-        if: ${{ matrix.binary  == 'polkadot-omni-node' || matrix.binary == 'polkadot-parachain' }}
+        if: ${{ matrix.binary  == 'polkadot-omni-node' || matrix.binary == 'polkadot-parachain' || matrix.binary == 'chain-spec-builder' }}
         uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
         with:
           username: ${{ secrets.CUMULUS_DOCKERHUB_USERNAME }}
