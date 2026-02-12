@@ -76,7 +76,7 @@ jobs:
 
     steps:
       - name: Checkout release-automation scripts
-        uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Calculate weekly version and set defaults
         id: calculate_weekly
@@ -126,7 +126,7 @@ jobs:
 
     steps:
       - name: Checkout sources
-        uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Validate inputs
         id: validate_inputs
@@ -197,6 +197,19 @@ jobs:
       owner: parity
       version: ${{ needs.validate-inputs.outputs.node_version }}
       build_run_id: ${{ github.run_id }}
+    secrets: inherit
+    permissions:
+      contents: write
+      id-token: write
+      actions: read
+
+  publish-release-draft:
+    needs: [ tag-weekly-rc, build-weekly-rc, build-runtimes ]
+    uses: ./.github/workflows/release-30_publish_release_draft.yml
+    with:
+      weekly_release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
+      build_run_id: ${{ github.run_id }}
+      runtimes: '${{ needs.build-runtimes.outputs.published_runtimes }}'
     secrets: inherit
     permissions:
       contents: write
