@@ -21,7 +21,6 @@ on:
         type: string
       runtimes:
         description: Runtimes to be published
-        required: true
         type: string
   workflow_call:
       inputs:
@@ -36,7 +35,6 @@ on:
         runtimes:
           description: Runtimes to be published
           type: string
-          required: true
 
 
 jobs:
