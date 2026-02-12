@@ -260,7 +260,7 @@ jobs:
           . ../../../.github/scripts/common/lib.sh
 
           mv ${{ matrix.binary }} ${{ matrix.binary }}-aarch64-apple-darwin
-          mv ${{ matrix.binary }}.asc ${{ matrix.binary }}-aarch64-apple-darwin.asc
+          # mv ${{ matrix.binary }}.asc ${{ matrix.binary }}-aarch64-apple-darwin.asc
 
           sha256sum "${{ matrix.binary }}-aarch64-apple-darwin" | tee "${{ matrix.binary }}-aarch64-apple-darwin.sha256"
           check_sha256 "${{ matrix.binary }}-aarch64-apple-darwin" && echo "OK" || echo "ERR"
@@ -284,12 +284,12 @@ jobs:
             gh release upload ${{ needs.validate-inputs.outputs.release_tag }} \
               --repo ${{ github.repository }} \
               ${{ matrix.binary }}-aarch64-apple-darwin \
-              ${{ matrix.binary }}-aarch64-apple-darwin.asc \
-              ${{ matrix.binary }}-aarch64-apple-darwin.sha256
+              ${{ matrix.binary }}-aarch64-apple-darwin.sha256 \
+              # ${{ matrix.binary }}-aarch64-apple-darwin.asc
           else
             gh release upload ${{ needs.validate-inputs.outputs.release_tag }} \
               --repo ${{ github.repository }} \
               ${{ matrix.binary }} \
-              ${{ matrix.binary }}.asc \
-              ${{ matrix.binary }}.sha256
+              ${{ matrix.binary }}.sha256 \
+              # ${{ matrix.binary }}.asc
           fi
