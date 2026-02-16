@@ -220,19 +220,19 @@ jobs:
 
           #VERSION=$(sed -E 's/^v([0-9]+\.[0-9]+\.[0-9]+).*$/\1/' <<< "$NODE_VERSION") #getting reed of the 'v' prefix
 
-          echo "🔍 Checking if there are any pr_*.prdoc files in the root directory"
-          shopt -s nullglob
-          files=(prdoc/pr_*.prdoc)
-          shopt -u nullglob
-          if [ ${#files[@]} -eq 0 ]; then
-              echo "No pr_*.prdoc files found, skipping.🤝"
-          else
-            echo "[+] ℹ️ Reordering prdocs:"
-            mkdir -p "prdoc/$WEEKLY_BRANCH_NAME"
-            mv prdoc/pr_*.prdoc prdoc/$WEEKLY_BRANCH_NAME
-            git add -A
-            commit_with_message "Reordering prdocs for the release $WEEKLY_BRANCH_NAME"
-          fi
+          # echo "🔍 Checking if there are any pr_*.prdoc files in the root directory"
+          # shopt -s nullglob
+          # files=(prdoc/pr_*.prdoc)
+          # shopt -u nullglob
+          # if [ ${#files[@]} -eq 0 ]; then
+          #     echo "No pr_*.prdoc files found, skipping.🤝"
+          # else
+          #   echo "[+] ℹ️ Reordering prdocs:"
+          #   mkdir -p "prdoc/$WEEKLY_BRANCH_NAME"
+          #   mv prdoc/pr_*.prdoc prdoc/$WEEKLY_BRANCH_NAME
+          #   git add -A
+          #   commit_with_message "Reordering prdocs for the release $WEEKLY_BRANCH_NAME"
+          # fi
 
           gh auth setup-git
 
