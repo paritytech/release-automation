@@ -157,6 +157,7 @@ jobs:
       node_version: ${{ needs.validate-inputs.outputs.node_version }}
       is_new_weekly: ${{ needs.calculate-weekly-version.outputs.is_new_weekly == 'true' }}
     secrets: inherit
+
   tag-weekly-rc:
     needs: [ validate-inputs, create-or-update-weekly-branch ]
     uses: ./.github/workflows/release-11_rc-automation.yml
@@ -215,3 +216,18 @@ jobs:
       contents: write
       id-token: write
       actions: read
+
+  publish-prerelease:
+    needs: [ tag-weekly-rc, publish-release-draft ]
+    runs-on: parity-default
+    permissions:
+      contents: write
+    steps:
+      - name: Publish release as pre-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit ${{ needs.tag-weekly-rc.outputs.rc_tag }} \
+            --repo ${{ github.repository }} \
+            --draft=false \
+            --prerelease
