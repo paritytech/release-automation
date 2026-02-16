@@ -187,20 +187,33 @@ jobs:
             set_version "$NODE_VERSION_PATTERN" $NODE_VERSION "cumulus/polkadot-omni-node/lib/src/nodes/mod.rs"
             commit_with_message "Bump node version to $NODE_VERSION in polkadot-omni-node-lib"
 
-            patch=$(echo "$NODE_VERSION" | awk -F'[.-]' '{print $3}')
-            SUFFIX=$(printf "%03d" "$patch") #to be used in the spec version
-            SPEC_VERSION=$(get_spec_version $NODE_VERSION)
             runtimes_list=$(get_filtered_runtimes_list)
-            # set_spec_versions $SPEC_VERSION "${runtimes_list[@]}"
 
-            printf "📋 Setting spec_version to $SPEC_VERSION\n"
+            printf "📋 Bumping spec_version for each runtime\n"
 
             for f in ${runtimes_list[@]}; do
-                printf " 🔄  processing $f"
-                sed -ri "s/spec_version: [0-9]+_[0-9]+_[0-9]+,/spec_version: $SPEC_VERSION,/" $f
+                printf " 🔄  processing $f\n"
+
+                # Get current spec_version
+                current=$(grep -oE 'spec_version:\s*[0-9]+_[0-9]+_[0-9]+' "$f" | grep -oE '[0-9]+_[0-9]+_[0-9]+')
+                if [ -z "$current" ]; then
+                    echo "  ⚠️  No spec_version found in $f, skipping"
+                    return 1
+                fi
+
+                # Split: 1_021_001 → prefix=1_021, suffix=001
+                prefix="${current%_*}"
+                suffix="${current##*_}"
+
+                new_suffix
+                new_suffix=$(printf "%03d" $((10#$suffix + 1)))
+                new_version="${prefix}_${new_suffix}"
+
+                sed -i "s/spec_version: ${current}/spec_version: ${new_version}/" "$f"
+                echo "✅ Bumped spec_version for $f: ${current} → ${new_version}"
             done
 
-            commit_with_message "Bump spec_version to $SPEC_VERSION"
+            commit_with_message "Bump spec_version for weekly release"
           fi
 
           # reorder_prdocs $WEEKLY_BRANCH_NAME
