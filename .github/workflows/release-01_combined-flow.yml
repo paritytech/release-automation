@@ -217,13 +217,13 @@ jobs:
       id-token: write
       actions: read
 
-  publish-prerelease:
+  publish-release:
     needs: [ tag-weekly-rc, publish-release-draft ]
     runs-on: parity-default
     permissions:
       contents: write
     steps:
-      - name: Publish release as pre-release
+      - name: Publish release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -231,5 +231,4 @@ jobs:
 
           gh release edit ${{ needs.tag-weekly-rc.outputs.rc_tag }} \
             --repo ${{ github.repository }} \
-            --draft=false \
-            --prerelease
+            --draft=false
