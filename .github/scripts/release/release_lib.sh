@@ -52,6 +52,34 @@ set_spec_versions() {
   git_show_log 'spec_version'
 }
 
+# Read the current spec_version from a runtime lib.rs and increment the last segment.
+# spec_version format: MAJOR_0MINOR_SUFFIX (e.g., 1_021_001 → 1_021_002)
+#
+# input: file path to runtime lib.rs
+# output: none (modifies file in place, prints old → new)
+bump_spec_version() {
+    local file=$1
+
+    local current
+    current=$(grep -oE 'spec_version:\s*[0-9]+_[0-9]+_[0-9]+' "$file" | grep -oE '[0-9]+_[0-9]+_[0-9]+')
+
+    if [ -z "$current" ]; then
+        echo "  ⚠️  No spec_version found in $file, skipping"
+        return 1
+    fi
+
+    # Split: 1_021_001 → prefix=1_021, suffix=001
+    local prefix="${current%_*}"
+    local suffix="${current##*_}"
+
+    local new_suffix
+    new_suffix=$(printf "%03d" $((10#$suffix + 1)))
+    local new_version="${prefix}_${new_suffix}"
+
+    sed -i "s/spec_version: ${current}/spec_version: ${new_version}/" "$file"
+    echo "  ${current} → ${new_version}"
+}
+
 # Displays formated results of the git log command
 # for the given pattern which needs to be found in logs
 # input: pattern, count (optional, default is 10)

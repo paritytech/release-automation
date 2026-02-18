@@ -76,10 +76,16 @@ jobs:
 
     steps:
       - name: Checkout release-automation scripts
-        uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Calculate weekly version and set defaults
         id: calculate_weekly
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_BINARY: ${{ inputs.binary }}
+          INPUT_CHAIN: ${{ inputs.chain }}
+          INPUT_RUNTIME_DIR: ${{ inputs.runtime_dir }}
+          INPUT_IS_NEW_WEEKLY: ${{ inputs.is_new_weekly }}
         run: |
           . ./.github/scripts/common/lib.sh
 
@@ -91,16 +97,16 @@ jobs:
           node_version="${patched_node_version}-${weekly_version}"
 
           # Set default values for cron triggers
-          if [ "${{ github.event_name }}" = "schedule" ]; then
+          if [ "$EVENT_NAME" = "schedule" ]; then
             binary="all"
             chain="all"
             is_new_weekly="true"
           else
             # For manual triggers, use input values
-            binary="${{ inputs.binary }}"
-            chain="${{ inputs.chain }}"
-            runtime_dir="${{ inputs.runtime_dir }}"
-            is_new_weekly="${{ inputs.is_new_weekly }}"
+            binary="$INPUT_BINARY"
+            chain="$INPUT_CHAIN"
+            runtime_dir="$INPUT_RUNTIME_DIR"
+            is_new_weekly="$INPUT_IS_NEW_WEEKLY"
           fi
 
           echo "weekly_version=${weekly_version}" >> $GITHUB_OUTPUT
@@ -126,24 +132,30 @@ jobs:
 
     steps:
       - name: Checkout sources
-        uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Validate inputs
         id: validate_inputs
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CALC_WEEKLY_VERSION: ${{ needs.calculate-weekly-version.outputs.weekly_version }}
+          CALC_NODE_VERSION: ${{ needs.calculate-weekly-version.outputs.node_version }}
+          INPUT_NODE_VERSION: ${{ inputs.node_version }}
+          INPUT_WEEKLY_VERSION: ${{ inputs.weekly_version }}
         run: |
           . ./.github/scripts/common/lib.sh
 
           # Use calculated values for cron triggers, or input values for manual triggers
-          if [ "${{ github.event_name }}" = "schedule" ]; then
+          if [ "$EVENT_NAME" = "schedule" ]; then
             # For cron triggers, use calculated values
-            weekly_version=$(validate_weekly_release_tag ${{ needs.calculate-weekly-version.outputs.weekly_version }})
-            node_version="${{ needs.calculate-weekly-version.outputs.node_version }}"
+            weekly_version=$(validate_weekly_release_tag "$CALC_WEEKLY_VERSION")
+            node_version="$CALC_NODE_VERSION"
           else
             # For manual triggers, use input values
-            if [ -n "${{ inputs.node_version }}" ]; then
-              node_version=$(filter_version_from_input "${{ inputs.node_version }}")
+            if [ -n "$INPUT_NODE_VERSION" ]; then
+              node_version=$(filter_version_from_input "$INPUT_NODE_VERSION")
             fi
-            weekly_version=$(validate_weekly_release_tag ${{ inputs.weekly_version }})
+            weekly_version=$(validate_weekly_release_tag "$INPUT_WEEKLY_VERSION")
           fi
 
           echo "weekly_version=${weekly_version}" >> $GITHUB_OUTPUT
@@ -157,6 +169,7 @@ jobs:
       node_version: ${{ needs.validate-inputs.outputs.node_version }}
       is_new_weekly: ${{ needs.calculate-weekly-version.outputs.is_new_weekly == 'true' }}
     secrets: inherit
+
   tag-weekly-rc:
     needs: [ validate-inputs, create-or-update-weekly-branch ]
     uses: ./.github/workflows/release-11_rc-automation.yml
@@ -202,3 +215,34 @@ jobs:
       contents: write
       id-token: write
       actions: read
+
+  publish-release-draft:
+    needs: [ tag-weekly-rc, build-weekly-rc, build-runtimes ]
+    uses: ./.github/workflows/release-30_publish_release_draft.yml
+    with:
+      weekly_release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
+      build_run_id: ${{ github.run_id }}
+      runtimes: '${{ needs.build-runtimes.outputs.published_runtimes }}'
+    secrets: inherit
+    permissions:
+      contents: write
+      id-token: write
+      actions: read
+
+  publish-release:
+    needs: [ tag-weekly-rc, publish-release-draft ]
+    runs-on: parity-default
+    permissions:
+      contents: write
+    steps:
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RC_TAG: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y gh
+
+          gh release edit "$RC_TAG" \
+            --repo "$REPO" \
+            --draft=false

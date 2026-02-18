@@ -21,13 +21,15 @@ jobs:
 
     steps:
       - name: Checkout sources
-        uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Validate inputs
         id: validate_inputs
+        env:
+          INPUT_WEEKLY_VERSION: ${{ inputs.weekly_version }}
         run: |
           . ./.github/scripts/common/lib.sh
-          weekly_version=$(validate_weekly_release_tag ${{ inputs.weekly_version }})
+          weekly_version=$(validate_weekly_release_tag "$INPUT_WEEKLY_VERSION")
           echo "weekly_version=${weekly_version}" >> $GITHUB_OUTPUT
 
   tag_rc:
@@ -70,7 +72,7 @@ jobs:
             owner: paritytech
 
       - name: Checkout sources
-        uses: actions/checkout@6d193bf28034eafb982f37bd894289fe649468fc # v4.1.7
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: paritytech/polkadot-sdk
           fetch-depth: 0
@@ -95,12 +97,13 @@ jobs:
       - name: Compute next rc tag
         id: compute_tag
         shell: bash
-
+        env:
+          WEEKLY_VERSION: ${{ needs.validate-inputs.outputs.weekly_version }}
         run: |
           . ./.github/scripts/common/lib.sh
 
           # Get last rc tag if exists, else set it to {version}-rc1
-          version=polkadot-${{ needs.validate-inputs.outputs.weekly_version }}
+          version="polkadot-${WEEKLY_VERSION}"
           echo "$version"
           echo "version=$version" >> $GITHUB_OUTPUT
 

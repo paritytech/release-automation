@@ -49,6 +49,10 @@ on:
         description: Tag matching the actual release candidate with the format polkadot-weeklyYYYYw#-rcX (e.g. polkadot-weekly2025w1-rc1)
         type: string
 
+    outputs:
+      published_runtimes:
+        value: ${{ jobs.build-runtimes.outputs.published_runtimes }}
+
 jobs:
   validate-inputs:
     runs-on: parity-default
@@ -56,14 +60,16 @@ jobs:
         weekly_release_tag: ${{ steps.validate_inputs.outputs.weekly_release_tag }}
     steps:
       - name: Checkout sources
-        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Validate inputs
         id: validate_inputs
+        env:
+          INPUT_WEEKLY_RELEASE_TAG: ${{ inputs.weekly_release_tag }}
         run: |
           . ./.github/scripts/common/lib.sh
 
-          RELEASE_TAG=$(validate_weekly_release_tag ${{ inputs.weekly_release_tag }})
+          RELEASE_TAG=$(validate_weekly_release_tag "$INPUT_WEEKLY_RELEASE_TAG")
           echo "weekly_release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
 
   build-runtimes:
