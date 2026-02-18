@@ -64,10 +64,12 @@ jobs:
 
       - name: Validate inputs
         id: validate_inputs
+        env:
+          INPUT_WEEKLY_RELEASE_TAG: ${{ inputs.weekly_release_tag }}
         run: |
           . ./.github/scripts/common/lib.sh
 
-          RELEASE_TAG=$(validate_weekly_release_tag ${{ inputs.weekly_release_tag }})
+          RELEASE_TAG=$(validate_weekly_release_tag "$INPUT_WEEKLY_RELEASE_TAG")
           echo "weekly_release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
 
   build-runtimes:

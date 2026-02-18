@@ -44,15 +44,18 @@ jobs:
 
       - name: Validate inputs
         id: validate_inputs
+        env:
+          INPUT_NODE_VERSION: ${{ inputs.node_version }}
+          INPUT_WEEKLY_VERSION: ${{ inputs.weekly_version }}
         run: |
           . ./.github/scripts/common/lib.sh
 
-          if [ -n "${{ inputs.node_version }}" ]; then
-            node_version=$(filter_version_from_input "${{ inputs.node_version }}")
+          if [ -n "$INPUT_NODE_VERSION" ]; then
+            node_version=$(filter_version_from_input "$INPUT_NODE_VERSION")
             echo "node_version=${node_version}" >> $GITHUB_OUTPUT
           fi
 
-          weekly_version=$(validate_weekly_release_tag ${{ inputs.weekly_version }})
+          weekly_version=$(validate_weekly_release_tag "$INPUT_WEEKLY_VERSION")
           echo "weekly_version=${weekly_version}" >> $GITHUB_OUTPUT
 
   create-weekly-branch:
@@ -111,6 +114,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
+          IS_NEW_WEEKLY: ${{ inputs.is_new_weekly }}
         run: |
           echo "🚀 Creating or switching to weekly release branch: $WEEKLY_BRANCH_NAME"
 
@@ -129,7 +133,7 @@ jobs:
           echo "🔍 Finding base branch for new weekly release..."
 
           # Try to find the previous weekly branch first
-          if [ "${{ inputs.is_new_weekly }}" = true ]; then
+          if [ "$IS_NEW_WEEKLY" = true ]; then
             LATEST_WEEKLY_BRANCH=$(git branch -r | grep -E 'origin/weekly[0-9]{4}w[0-9]+' | sed 's/origin\///' | awk '{print $1}' | sort -Vr | head -n1)
             if [ $? -eq 0 ] && [ -n "$LATEST_WEEKLY_BRANCH" ]; then
               echo "✅ Found previous weekly branch: $LATEST_WEEKLY_BRANCH"
@@ -159,7 +163,7 @@ jobs:
           fi
 
           # If we're creating from a previous weekly branch, merge master to get latest changes
-          if [ "${{ inputs.is_new_weekly }}" = true ] && [ "$BASE_BRANCH" != "master" ]; then
+          if [ "$IS_NEW_WEEKLY" = true ] && [ "$BASE_BRANCH" != "master" ]; then
             echo "🔄 Merging master into '$WEEKLY_BRANCH_NAME' to get latest changes..."
             git fetch origin master
             if ! git merge -q origin/master --no-edit --allow-unrelated-histories; then
@@ -176,11 +180,12 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
+          IS_NEW_WEEKLY: ${{ inputs.is_new_weekly }}
+          NODE_VERSION: ${{ needs.validate-inputs.outputs.node_version }}
         run: |
           . ./.github/scripts/release/release_lib.sh
 
-          if [ "${{ inputs.is_new_weekly }}" = true ]; then
-            NODE_VERSION="${{ needs.validate-inputs.outputs.node_version }}"
+          if [ "$IS_NEW_WEEKLY" = true ]; then
             NODE_VERSION_PATTERN="\(NODE_VERSION[^=]*= \)\".*\""
             set_version "$NODE_VERSION_PATTERN" $NODE_VERSION "polkadot/node/primitives/src/lib.rs"
             commit_with_message "Bump node version to $NODE_VERSION in polkadot-cli"
@@ -198,14 +203,13 @@ jobs:
                 current=$(grep -oE 'spec_version:\s*[0-9]+_[0-9]+_[0-9]+' "$f" | grep -oE '[0-9]+_[0-9]+_[0-9]+')
                 if [ -z "$current" ]; then
                     echo "  ⚠️  No spec_version found in $f, skipping"
-                    return 1
+                    continue
                 fi
 
                 # Split: 1_021_001 → prefix=1_021, suffix=001
                 prefix="${current%_*}"
                 suffix="${current##*_}"
 
-                new_suffix
                 new_suffix=$(printf "%03d" $((10#$suffix + 1)))
                 new_version="${prefix}_${new_suffix}"
 

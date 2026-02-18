@@ -198,7 +198,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p ${{ github.workspace}}/runtimes/
-          gh run download ${{ inputs.build_run_id }} --dir ${{ github.workspace}}/runtimes
+          gh run download ${{ inputs.build_run_id }} --name ${{ matrix.chain }}-runtime --dir ${{ github.workspace}}/runtimes
           ls -la ${{ github.workspace}}/runtimes
 
       - name: Get runtime info

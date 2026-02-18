@@ -25,9 +25,11 @@ jobs:
 
       - name: Validate inputs
         id: validate_inputs
+        env:
+          INPUT_WEEKLY_VERSION: ${{ inputs.weekly_version }}
         run: |
           . ./.github/scripts/common/lib.sh
-          weekly_version=$(validate_weekly_release_tag ${{ inputs.weekly_version }})
+          weekly_version=$(validate_weekly_release_tag "$INPUT_WEEKLY_VERSION")
           echo "weekly_version=${weekly_version}" >> $GITHUB_OUTPUT
 
   tag_rc:
@@ -95,12 +97,13 @@ jobs:
       - name: Compute next rc tag
         id: compute_tag
         shell: bash
-
+        env:
+          WEEKLY_VERSION: ${{ needs.validate-inputs.outputs.weekly_version }}
         run: |
           . ./.github/scripts/common/lib.sh
 
           # Get last rc tag if exists, else set it to {version}-rc1
-          version=polkadot-${{ needs.validate-inputs.outputs.weekly_version }}
+          version="polkadot-${WEEKLY_VERSION}"
           echo "$version"
           echo "version=$version" >> $GITHUB_OUTPUT
 
