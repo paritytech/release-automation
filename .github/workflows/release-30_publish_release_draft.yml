@@ -194,32 +194,48 @@ jobs:
 
       - name: Download runtimes
         env:
-          # GITHUB_TOKEN: ${{ steps.generate_write_token.outputs.token }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          CHAIN: ${{ matrix.chain }}
         run: |
-          mkdir -p ${{ github.workspace}}/runtimes/
-          gh run download ${{ inputs.build_run_id }} --name ${{ matrix.chain }}-runtime --dir ${{ github.workspace}}/runtimes
-          ls -la ${{ github.workspace}}/runtimes
+          mkdir -p "${{ github.workspace }}/runtimes/"
+          gh run download "$BUILD_RUN_ID" --name "${CHAIN}-runtime" --dir "${{ github.workspace }}/runtimes"
+          echo "Downloaded artifacts:"
+          find "${{ github.workspace }}/runtimes" -type f | head -50
 
       - name: Get runtime info
         env:
-          JSON: ${{ github.workspace}}/runtimes/${{ matrix.chain }}-runtime/${{ matrix.chain }}-srtool-digest.json
+          CHAIN: ${{ matrix.chain }}
+          RUNTIMES_DIR: ${{ github.workspace }}/runtimes
         run: |
-          cd ${{ github.workspace}}/runtimes
-          >>$GITHUB_ENV echo ASSET=$(find ${{ matrix.chain }}-runtime -name '*.compact.compressed.wasm')
-          >>$GITHUB_ENV echo SPEC=$(<${JSON} jq -r .runtimes.compact.subwasm.core_version.specVersion)
+          # Find the wasm file — search from the download root in case directory nesting varies
+          ASSET=$(find "$RUNTIMES_DIR" -name '*.compact.compressed.wasm' -path "*${CHAIN}*" | head -1)
+          if [ -z "$ASSET" ]; then
+            echo "::error::No compact.compressed.wasm found for ${CHAIN}"
+            exit 1
+          fi
+          echo "ASSET=${ASSET}" >> $GITHUB_ENV
+
+          # Find the srtool digest json
+          DIGEST=$(find "$RUNTIMES_DIR" -name "${CHAIN}-srtool-digest.json" | head -1)
+          if [ -z "$DIGEST" ]; then
+            echo "::error::No srtool digest found for ${CHAIN}"
+            exit 1
+          fi
+          echo "SPEC=$(jq -r .runtimes.compact.subwasm.core_version.specVersion "$DIGEST")" >> $GITHUB_ENV
 
       - name: Upload compressed ${{ matrix.chain }} v${{ env.SPEC }} wasm
-        working-directory: ${{ github.workspace}}/runtimes
         env:
-          # GITHUB_TOKEN: ${{ steps.generate_write_token.outputs.token }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHAIN: ${{ matrix.chain }}
+          RELEASE_TAG: ${{ needs.validate-inputs.outputs.release_tag }}
+          REPO: ${{ github.repository }}
         run: |
-          VERSIONED_ASSET="${{ matrix.chain }}_runtime-v${{ env.SPEC }}.compact.compressed.wasm"
-          mv "${{ env.ASSET }}" "$VERSIONED_ASSET"
+          VERSIONED_ASSET="${CHAIN}_runtime-v${SPEC}.compact.compressed.wasm"
+          mv "$ASSET" "$VERSIONED_ASSET"
 
-          gh release upload ${{ needs.validate-inputs.outputs.release_tag }} \
-            --repo ${{ github.repository }} "$VERSIONED_ASSET"
+          gh release upload "$RELEASE_TAG" \
+            --repo "$REPO" "$VERSIONED_ASSET"
 
   publish-release-artifacts:
     # if: ${{ inputs.crates_only == false }}
