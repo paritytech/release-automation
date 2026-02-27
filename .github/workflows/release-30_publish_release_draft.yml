@@ -295,20 +295,21 @@ jobs:
 
       - name: Upload ${{ matrix.binary }} binary to release draft
         env:
-          # GITHUB_TOKEN: ${{ steps.generate_write_token.outputs.token }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.validate-inputs.outputs.release_tag }}
+          REPO: ${{ github.repository }}
+          BINARY: ${{ matrix.binary }}
+          TARGET: ${{ matrix.target }}
         working-directory: ${{ github.workspace}}/release-artifacts/${{ matrix.target }}/${{ matrix.binary }}
         run: |
-          if [[ ${{ matrix.target }} == "aarch64-apple-darwin" ]]; then
-            gh release upload ${{ needs.validate-inputs.outputs.release_tag }} \
-              --repo ${{ github.repository }} \
-              ${{ matrix.binary }}-aarch64-apple-darwin \
-              ${{ matrix.binary }}-aarch64-apple-darwin.sha256 \
-              # ${{ matrix.binary }}-aarch64-apple-darwin.asc
+          if [[ "$TARGET" == "aarch64-apple-darwin" ]]; then
+            gh release upload "$RELEASE_TAG" \
+              --repo "$REPO" \
+              "${BINARY}-aarch64-apple-darwin" \
+              "${BINARY}-aarch64-apple-darwin.sha256"
           else
-            gh release upload ${{ needs.validate-inputs.outputs.release_tag }} \
-              --repo ${{ github.repository }} \
-              ${{ matrix.binary }} \
-              ${{ matrix.binary }}.sha256 \
-              # ${{ matrix.binary }}.asc
+            gh release upload "$RELEASE_TAG" \
+              --repo "$REPO" \
+              "$BINARY" \
+              "${BINARY}.sha256"
           fi

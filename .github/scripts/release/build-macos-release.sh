@@ -13,7 +13,6 @@ PROFILE=${PROFILE:-production}
 # parity-macos runner needs a path where it can
 # write, so make it relative to github workspace.
 ARTIFACTS=$GITHUB_WORKSPACE/artifacts/$BIN
-VERSION=$(git tag -l --contains HEAD | grep -E "^v.*")
 # must be given as feature1,feature2,feature3...
 FEATURES=$3
 if [ -n "$FEATURES" ]; then
@@ -31,8 +30,9 @@ echo "Artifact target: $ARTIFACTS"
 cp ./target/$PROFILE/$BIN "$ARTIFACTS"
 pushd "$ARTIFACTS" > /dev/null
 sha256sum "$BIN" | tee "$BIN.sha256"
-
-EXTRATAG="$($ARTIFACTS/$BIN --version |
+chmod a+x "$BIN"
+VERSION="$($ARTIFACTS/$BIN --version)"
+EXTRATAG="$(echo "${VERSION}" |
     sed -n -r 's/^'$BIN' ([0-9.]+.*-[0-9a-f]{7,13})-.*$/\1/p')"
 
 EXTRATAG="${VERSION}-${EXTRATAG}-$(cut -c 1-8 $ARTIFACTS/$BIN.sha256)"
