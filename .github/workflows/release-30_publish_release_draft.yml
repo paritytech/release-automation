@@ -261,23 +261,28 @@ jobs:
       - name: Download artifacts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          BINARY: ${{ matrix.binary }}
+          TARGET: ${{ matrix.target }}
         run: |
-          mkdir -p release-artifacts/${{ matrix.target }}/${{ matrix.binary }}
-          gh run download ${{ inputs.build_run_id }} \
-            --name ${{ matrix.binary }}_${{ matrix.target }} \
-            --dir release-artifacts/${{ matrix.target }}/${{ matrix.binary }}
+          mkdir -p "release-artifacts/${TARGET}/${BINARY}"
+          gh run download "$BUILD_RUN_ID" \
+            --name "${BINARY}_${TARGET}" \
+            --dir "release-artifacts/${TARGET}/${BINARY}"
 
       - name: Rename aarch64-apple-darwin binaries
         if: ${{ matrix.target == 'aarch64-apple-darwin' }}
+        env:
+          BINARY: ${{ matrix.binary }}
+          TARGET: ${{ matrix.target }}
         working-directory: ${{ github.workspace}}/release-artifacts/${{ matrix.target }}/${{ matrix.binary }}
         run: |
           . ../../../.github/scripts/common/lib.sh
 
-          mv ${{ matrix.binary }} ${{ matrix.binary }}-aarch64-apple-darwin
-          # mv ${{ matrix.binary }}.asc ${{ matrix.binary }}-aarch64-apple-darwin.asc
+          mv "$BINARY" "${BINARY}-aarch64-apple-darwin"
 
-          sha256sum "${{ matrix.binary }}-aarch64-apple-darwin" | tee "${{ matrix.binary }}-aarch64-apple-darwin.sha256"
-          check_sha256 "${{ matrix.binary }}-aarch64-apple-darwin" && echo "OK" || echo "ERR"
+          sha256sum "${BINARY}-aarch64-apple-darwin" | tee "${BINARY}-aarch64-apple-darwin.sha256"
+          check_sha256 "${BINARY}-aarch64-apple-darwin" && echo "OK" || echo "ERR"
 
       # - name: Generate content write token for the release automation
       #   id: generate_write_token
