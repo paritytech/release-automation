@@ -1,0 +1,236 @@
+name: Release - Notify on pipeline failure
+
+# Watchdog for the release pipeline.
+#
+# The weekly flow failed 21 times in a row (2026-03-18 .. 2026-08-05) without anyone
+# noticing, because a failed scheduled run produces no signal beyond a red tick in the
+# Actions tab. This workflow turns every terminal failure into something loud:
+#
+#   * a GitHub issue, created on the first failure, commented on for every subsequent
+#     failure, and closed automatically once the pipeline goes green again — so an open
+#     issue with this label always means "the pipeline is broken right now"
+#   * a Matrix @room ping to the RelEng room, when RELEASENOTES_MATRIX_V2_ACCESS_TOKEN
+#     is configured on the repo
+#
+# Triggered via workflow_run rather than as a job inside the pipeline on purpose:
+# workflow_run fires for *any* terminal conclusion — including cancellations, timeouts
+# and startup failures that a `needs:`-based job inside the pipeline would itself miss.
+#
+# Runs on GitHub-hosted runners deliberately: a watchdog must not depend on the same
+# self-hosted runner pool whose unavailability it needs to report.
+
+on:
+  workflow_run:
+    workflows:
+      # Reusable workflows called via `uses:` do not raise their own workflow_run event,
+      # so the combined flow covers the scheduled path; the rest catch manual dispatches.
+      - "Release - Combined release flow"
+      - "Release - Branch off weekly branch"
+      - "Release - Tag weekly RC"
+      - "Release - Build RC"
+      - "Release - Build runtimes"
+      - "Release - Publish draft"
+      - "Release - Publish Docker images"
+    types:
+      - completed
+
+permissions:
+  issues: write
+  actions: read
+
+jobs:
+  notify:
+    # Only react to green or genuinely broken; ignore neutral/skipped conclusions.
+    if: >-
+      contains(fromJSON('["success","failure","cancelled","timed_out","startup_failure"]'),
+               github.event.workflow_run.conclusion)
+    runs-on: ubuntu-latest
+    env:
+      MATRIX_ACCESS_TOKEN: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+      RUN_URL: ${{ github.event.workflow_run.html_url }}
+      RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+      WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+      CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      TRIGGER_EVENT: ${{ github.event.workflow_run.event }}
+      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+      ISSUE_LABEL: release-pipeline-failure
+
+    steps:
+      - name: Collect run details
+        id: details
+        shell: bash
+        run: |
+          set -eo pipefail
+
+          # Which jobs broke, and at which step. Kept terse so it stays readable in Matrix.
+          failed_jobs=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs" --paginate \
+            | jq -r '
+                .jobs[]
+                | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")
+                | . as $job
+                | ([$job.steps[]? | select(.conclusion == "failure") | .name]) as $steps
+                | "\($job.conclusion | ascii_upcase): \($job.name)"
+                  + (if ($steps | length) > 0 then " → step: \($steps | join(", "))" else "" end)
+              ' || true)
+
+          if [ -z "$failed_jobs" ]; then
+            failed_jobs="(no individual job reported a failure — likely a startup failure or a cancellation)"
+          fi
+
+          {
+            echo "failed_jobs<<__EOF__"
+            echo "$failed_jobs"
+            echo "__EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+          # How many completed runs of this workflow, counting back from the newest, are
+          # non-success. index("success") is the offset of the most recent green run;
+          # falling back to `length` means "every run we looked at was broken".
+          # Bounded to one page on purpose — this is a signal, not an audit.
+          streak=$(gh api "repos/$GH_REPO/actions/workflows/$WORKFLOW_ID/runs?per_page=100" \
+            | jq -r '
+                [ .workflow_runs[]
+                  | select(.status == "completed")
+                  | .conclusion
+                ] | (index("success") // length)
+              ' || echo "unknown")
+
+          echo "streak=${streak:-unknown}" >> "$GITHUB_OUTPUT"
+
+      - name: Find existing tracking issue
+        id: tracking
+        shell: bash
+        run: |
+          set -eo pipefail
+
+          gh label create "$ISSUE_LABEL" --repo "$GH_REPO" \
+            --color B60205 --description "Release pipeline is currently failing" 2>/dev/null || true
+
+          # One tracking issue per workflow, so a broken build stage cannot mask a
+          # broken branch-off.
+          number=$(gh issue list --repo "$GH_REPO" --state open --label "$ISSUE_LABEL" \
+              --limit 100 --json number,title \
+            | jq -r --arg wf "$WORKFLOW_NAME" \
+              '[.[] | select(.title | contains($wf)) | .number] | first // empty')
+
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "Existing tracking issue: ${number:-none}"
+
+      # ----------------------------------------------------------------- failure path
+
+      - name: Open or update tracking issue
+        if: env.CONCLUSION != 'success'
+        id: issue
+        shell: bash
+        env:
+          FAILED_JOBS: ${{ steps.details.outputs.failed_jobs }}
+          STREAK: ${{ steps.details.outputs.streak }}
+          EXISTING: ${{ steps.tracking.outputs.number }}
+        run: |
+          set -eo pipefail
+
+          body=$(cat <<__BODY__
+          ## 🚨 \`${WORKFLOW_NAME}\` — ${CONCLUSION}
+
+          | | |
+          |---|---|
+          | Run | [#${RUN_NUMBER}](${RUN_URL}) |
+          | Trigger | \`${TRIGGER_EVENT}\` on \`${HEAD_BRANCH}\` |
+          | Consecutive non-green runs | **${STREAK}** |
+
+          ### What broke
+
+          \`\`\`
+          ${FAILED_JOBS}
+          \`\`\`
+
+          No release artifacts were produced by this run.
+
+          This issue is maintained automatically: further failures are appended as
+          comments, and it closes itself once the pipeline succeeds again.
+          __BODY__
+          )
+
+          if [ -n "$EXISTING" ]; then
+            echo "Commenting on existing issue #${EXISTING}"
+            gh issue comment "$EXISTING" --repo "$GH_REPO" --body "$body"
+            url=$(gh issue view "$EXISTING" --repo "$GH_REPO" --json url -q .url)
+          else
+            echo "Creating new tracking issue"
+            url=$(gh issue create --repo "$GH_REPO" \
+              --title "🚨 Release pipeline failing: ${WORKFLOW_NAME}" \
+              --label "$ISSUE_LABEL" \
+              --body "$body")
+          fi
+
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Matrix alert to RelEng
+        if: env.CONCLUSION != 'success' && env.MATRIX_ACCESS_TOKEN != ''
+        continue-on-error: true
+        uses: s3krit/matrix-message-action@70ad3fb812ee0e45ff8999d6af11cafad11a6ecf # v0.0.3
+        with:
+          room_id: '!cqAmzdIcbOFwrdrubV:parity.io'
+          access_token: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
+          server: m.parity.io
+          message: |
+            @room
+
+            🚨 **Release pipeline ${{ env.CONCLUSION }}** — no artifacts were produced.<br/>
+            Workflow: **${{ env.WORKFLOW_NAME }}**<br/>
+            Run: [#${{ env.RUN_NUMBER }}](${{ env.RUN_URL }})<br/>
+            Consecutive non-green runs: **${{ steps.details.outputs.streak }}**<br/>
+            Tracking issue: ${{ steps.issue.outputs.url }}
+
+            -----
+
+      # ---------------------------------------------------------------- recovery path
+
+      - name: Close tracking issue on recovery
+        if: env.CONCLUSION == 'success' && steps.tracking.outputs.number != ''
+        shell: bash
+        env:
+          EXISTING: ${{ steps.tracking.outputs.number }}
+        run: |
+          set -eo pipefail
+          gh issue comment "$EXISTING" --repo "$GH_REPO" \
+            --body "✅ Recovered — [\`${WORKFLOW_NAME}\` #${RUN_NUMBER}](${RUN_URL}) succeeded. Closing."
+          gh issue close "$EXISTING" --repo "$GH_REPO" --reason completed
+
+      - name: Matrix recovery notice
+        if: env.CONCLUSION == 'success' && steps.tracking.outputs.number != '' && env.MATRIX_ACCESS_TOKEN != ''
+        continue-on-error: true
+        uses: s3krit/matrix-message-action@70ad3fb812ee0e45ff8999d6af11cafad11a6ecf # v0.0.3
+        with:
+          room_id: '!cqAmzdIcbOFwrdrubV:parity.io'
+          access_token: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
+          server: m.parity.io
+          message: |
+            ✅ **Release pipeline recovered** — ${{ env.WORKFLOW_NAME }}
+            [#${{ env.RUN_NUMBER }}](${{ env.RUN_URL }})
+
+            -----
+
+      - name: Job summary
+        if: always()
+        shell: bash
+        env:
+          ISSUE_URL: ${{ steps.issue.outputs.url }}
+          STREAK: ${{ steps.details.outputs.streak }}
+        run: |
+          {
+            echo "### ${WORKFLOW_NAME} → ${CONCLUSION}"
+            echo ""
+            echo "- Run: [#${RUN_NUMBER}](${RUN_URL})"
+            echo "- Consecutive non-green runs: ${STREAK}"
+            if [ -n "$ISSUE_URL" ]; then
+              echo "- Tracking issue: ${ISSUE_URL}"
+            fi
+            if [ -z "$MATRIX_ACCESS_TOKEN" ]; then
+              echo "- ⚠️ \`RELEASENOTES_MATRIX_V2_ACCESS_TOKEN\` is not set on this repo, so **no Matrix ping was sent**. Add it to enable @room alerts."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
