@@ -685,7 +685,11 @@ branch_exists() {
 # input: none
 # output: weekly_version (e.g., weekly2025w1)
 get_current_weekly_version() {
-    current_year=$(date +%Y)
+    # %G (ISO week-numbering year), not %Y: %V is the ISO week number, and the two
+    # disagree across the New Year. On 2025-12-31 the %Y/%V pair yields "weekly2025w01",
+    # colliding with the branch cut on 2025-01-01 — the flow would then silently take the
+    # "branch already exists" path and cut an RC off a year-old branch.
+    current_year=$(date +%G)
     current_week=$(date +%V)
     echo "weekly${current_year}w${current_week}"
 }
