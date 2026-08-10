@@ -27,11 +27,16 @@ commit_with_message() {
 
 # Retun list of the runtimes filterd
 # input: none
-# output: list of filtered runtimes
+# output: list of filtered runtimes (deduplicated)
 get_filtered_runtimes_list() {
-    grep_filters=("runtime.*" "test|template|starters|substrate")
+    # "docs" drops the tutorial runtime in docs/sdk/packages/guides/first-runtime,
+    # whose placeholder "spec_version: 0" does not match the MAJOR_0MINOR_PATCH format.
+    # Keep this filter list in sync with polkadot-sdk's copy of release_lib.sh — that is
+    # the copy the branch-off job actually sources, since it runs in a polkadot-sdk
+    # checkout.
+    grep_filters=("runtime.*" "test|template|starters|substrate|docs")
 
-    git grep spec_version: | grep .rs: | grep -e "${grep_filters[0]}" | grep "lib.rs" | grep -vE "${grep_filters[1]}" | cut -d: -f1
+    git grep spec_version: | grep .rs: | grep -e "${grep_filters[0]}" | grep "lib.rs" | grep -vE "${grep_filters[1]}" | cut -d: -f1 | sort -u
 }
 
 # Sets provided spec version
