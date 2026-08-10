@@ -110,11 +110,10 @@ jobs:
           git config --global user.email "release-team@parity.io"
           git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
 
-      - name: Find base branch and create weekly release branch
+      - name: Create weekly release branch off master
         shell: bash
         env:
           GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
-          IS_NEW_WEEKLY: ${{ inputs.is_new_weekly }}
         run: |
           echo "🚀 Creating or switching to weekly release branch: $WEEKLY_BRANCH_NAME"
 
@@ -122,59 +121,30 @@ jobs:
           git fetch origin
 
           # Check if the weekly branch already exists
-          if git rev-parse --verify -q origin/"$WEEKLY_BRANCH_NAME" &>/dev/null; then
+          if git rev-parse --verify -q "origin/$WEEKLY_BRANCH_NAME" >/dev/null; then
             echo "✅ Weekly branch '$WEEKLY_BRANCH_NAME' already exists, checking it out"
-            git checkout -q origin/"$WEEKLY_BRANCH_NAME"
+            # -B so we end up on a real local branch (not detached HEAD), otherwise the
+            # follow-up bump/push step has no ref to push.
+            git checkout -q -B "$WEEKLY_BRANCH_NAME" "origin/$WEEKLY_BRANCH_NAME"
             git show-ref "$WEEKLY_BRANCH_NAME"
             exit 0
           fi
 
-          # Find the base branch for creating the new weekly branch
-          echo "🔍 Finding base branch for new weekly release..."
+          # A weekly release is a snapshot of master, so master is always the base.
+          #
+          # Do NOT branch off the previous weekly branch and merge master in: the weekly
+          # branches carry the node/spec_version bump commits, which touch the exact lines
+          # master also moves (NODE_VERSION, spec_version in every runtime lib.rs). That
+          # merge conflicts by construction and gets worse the longer master runs ahead.
+          BASE_BRANCH="master"
 
-          # Try to find the previous weekly branch first
-          if [ "$IS_NEW_WEEKLY" = true ]; then
-            LATEST_WEEKLY_BRANCH=$(git branch -r | grep -E 'origin/weekly[0-9]{4}w[0-9]+' | sed 's/origin\///' | awk '{print $1}' | sort -Vr | head -n1)
-            if [ $? -eq 0 ] && [ -n "$LATEST_WEEKLY_BRANCH" ]; then
-              echo "✅ Found previous weekly branch: $LATEST_WEEKLY_BRANCH"
-              BASE_BRANCH="$LATEST_WEEKLY_BRANCH"
-            else
-              echo "⚠️  No weekly branches found, using master as base"
-              BASE_BRANCH="master"
-            fi
-          else
-            # For existing weekly branches, use master as base
-            BASE_BRANCH="master"
-            echo "✅ Using master as base for existing weekly branch"
-          fi
-
-          # Checkout the base branch
-          echo "📋 Checking out base branch: $BASE_BRANCH"
-          if ! git checkout -q "origin/$BASE_BRANCH"; then
-            echo "❌ Failed to checkout base branch: $BASE_BRANCH"
-            exit 1
-          fi
-
-          # Create new weekly branch from base
           echo "🌿 Creating new branch '$WEEKLY_BRANCH_NAME' from '$BASE_BRANCH'"
-          if ! git checkout -b "$WEEKLY_BRANCH_NAME"; then
-            echo "❌ Failed to create new branch: $WEEKLY_BRANCH_NAME"
+          if ! git checkout -q -b "$WEEKLY_BRANCH_NAME" "origin/$BASE_BRANCH"; then
+            echo "❌ Failed to create '$WEEKLY_BRANCH_NAME' from '$BASE_BRANCH'"
             exit 1
           fi
 
-          # If we're creating from a previous weekly branch, merge master to get latest changes
-          if [ "$IS_NEW_WEEKLY" = true ] && [ "$BASE_BRANCH" != "master" ]; then
-            echo "🔄 Merging master into '$WEEKLY_BRANCH_NAME' to get latest changes..."
-            git fetch origin master
-            if ! git merge -q origin/master --no-edit --allow-unrelated-histories; then
-              echo "❌ Failed to merge master into '$WEEKLY_BRANCH_NAME'"
-              echo "⚠️  Manual resolution may be required"
-              exit 1
-            fi
-            echo "✅ Successfully merged master into '$WEEKLY_BRANCH_NAME'"
-          fi
-
-          git show-ref "$WEEKLY_BRANCH_NAME"
+          echo "✅ Branched '$WEEKLY_BRANCH_NAME' off $BASE_BRANCH at $(git rev-parse --short HEAD)"
 
       - name: Bump versions, reorder prdocs and push weekly branch
         shell: bash
