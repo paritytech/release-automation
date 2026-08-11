@@ -67,10 +67,15 @@ jobs:
         run: |
           set -eo pipefail
 
+          # per_page=100 + --paginate is load-bearing: the default page size is 30, and a
+          # full weekly run has >100 jobs, so an unpaginated query silently truncates and
+          # would report a degraded run as clean.
+          jobs_json=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100" --paginate \
+            | jq -s '[.[].jobs[]]')
+
           # Which jobs broke, and at which step. Kept terse so it stays readable in Matrix.
-          failed_jobs=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs" --paginate \
-            | jq -r '
-                .jobs[]
+          failed_jobs=$(echo "$jobs_json" | jq -r '
+                .[]
                 | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")
                 | . as $job
                 | ([$job.steps[]? | select(.conclusion == "failure") | .name]) as $steps
@@ -82,9 +87,56 @@ jobs:
             failed_jobs="(no individual job reported a failure — likely a startup failure or a cancellation)"
           fi
 
+          # --- degraded detection: a green run that quietly shipped an incomplete release --
+          #
+          # release-30 sets continue-on-error on publish-runtimes and
+          # publish-release-artifacts, so a failed runtime or asset upload does NOT fail the
+          # run. On 2026-03-11 the run went green while coretime-westend and three binaries
+          # failed to publish. Keying only on run conclusion would miss exactly that.
+          masked_failures=$(echo "$jobs_json" | jq -r '
+                [ .[] | select(.conclusion == "failure") | .name ] | .[]
+              ' || true)
+
+          # Whole stages that were skipped rather than run. Scoped to the publish/Docker
+          # stages on purpose: the linux/macOS build pairs skip one side by design, and
+          # flagging those would make every run look degraded.
+          skipped_stages=$(echo "$jobs_json" | jq -r '
+                ["build-weekly-rc-docker-images","publish-release-draft","publish-release"] as $stages
+                | [ .[] as $j
+                    | $stages[] as $s
+                    | select($j.conclusion == "skipped"
+                             and (($j.name == $s) or ($j.name | startswith($s + " /"))))
+                    | $s
+                  ] | unique | .[]
+              ' || true)
+
+          if [ "$CONCLUSION" != "success" ]; then
+            state=failed
+          elif [ -n "$masked_failures" ] || [ -n "$skipped_stages" ]; then
+            state=degraded
+          else
+            state=green
+          fi
+
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+          echo "Run state: $state"
+
+          degraded_detail=""
+          if [ -n "$masked_failures" ]; then
+            degraded_detail+=$'Failed without failing the run (continue-on-error):\n'
+            degraded_detail+="$masked_failures"$'\n\n'
+          fi
+          if [ -n "$skipped_stages" ]; then
+            degraded_detail+=$'Skipped instead of running:\n'
+            degraded_detail+="$skipped_stages"$'\n'
+          fi
+
           {
             echo "failed_jobs<<__EOF__"
             echo "$failed_jobs"
+            echo "__EOF__"
+            echo "degraded_detail<<__EOF__"
+            echo "$degraded_detail"
             echo "__EOF__"
           } >> "$GITHUB_OUTPUT"
 
@@ -121,38 +173,55 @@ jobs:
           echo "number=$number" >> "$GITHUB_OUTPUT"
           echo "Existing tracking issue: ${number:-none}"
 
-      # ----------------------------------------------------------------- failure path
+      # ------------------------------------------------- failed / degraded alert path
 
       - name: Open or update tracking issue
-        if: env.CONCLUSION != 'success'
+        if: steps.details.outputs.state != 'green'
         id: issue
         shell: bash
         env:
           FAILED_JOBS: ${{ steps.details.outputs.failed_jobs }}
+          DEGRADED_DETAIL: ${{ steps.details.outputs.degraded_detail }}
+          STATE: ${{ steps.details.outputs.state }}
           STREAK: ${{ steps.details.outputs.streak }}
           EXISTING: ${{ steps.tracking.outputs.number }}
         run: |
           set -eo pipefail
 
+          if [ "$STATE" = "degraded" ]; then
+            heading="## ⚠️ \`${WORKFLOW_NAME}\` — completed, but shipped an incomplete release"
+            what_label="### What was lost"
+            what_body="$DEGRADED_DETAIL"
+            impact="The run reported **success**, so nothing else would have flagged this. Parts
+          of the release are missing — treat the artifacts for this weekly as incomplete
+          until the entries above are resolved."
+          else
+            heading="## 🚨 \`${WORKFLOW_NAME}\` — ${CONCLUSION}"
+            what_label="### What broke"
+            what_body="$FAILED_JOBS"
+            impact="No release artifacts were produced by this run."
+          fi
+
           body=$(cat <<__BODY__
-          ## 🚨 \`${WORKFLOW_NAME}\` — ${CONCLUSION}
+          ${heading}
 
           | | |
           |---|---|
           | Run | [#${RUN_NUMBER}](${RUN_URL}) |
           | Trigger | \`${TRIGGER_EVENT}\` on \`${HEAD_BRANCH}\` |
+          | Run conclusion | \`${CONCLUSION}\` |
           | Consecutive non-green runs | **${STREAK}** |
 
-          ### What broke
+          ${what_label}
 
           \`\`\`
-          ${FAILED_JOBS}
+          ${what_body}
           \`\`\`
 
-          No release artifacts were produced by this run.
+          ${impact}
 
-          This issue is maintained automatically: further failures are appended as
-          comments, and it closes itself once the pipeline succeeds again.
+          This issue is maintained automatically: further problems are appended as
+          comments, and it closes itself once a run completes fully clean.
           __BODY__
           )
 
@@ -163,7 +232,7 @@ jobs:
           else
             echo "Creating new tracking issue"
             url=$(gh issue create --repo "$GH_REPO" \
-              --title "🚨 Release pipeline failing: ${WORKFLOW_NAME}" \
+              --title "🚨 Release pipeline unhealthy: ${WORKFLOW_NAME}" \
               --label "$ISSUE_LABEL" \
               --body "$body")
           fi
@@ -171,7 +240,7 @@ jobs:
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
       - name: Matrix alert to RelEng
-        if: env.CONCLUSION != 'success' && env.MATRIX_ACCESS_TOKEN != ''
+        if: steps.details.outputs.state != 'green' && env.MATRIX_ACCESS_TOKEN != ''
         continue-on-error: true
         uses: s3krit/matrix-message-action@70ad3fb812ee0e45ff8999d6af11cafad11a6ecf # v0.0.3
         with:
@@ -181,9 +250,11 @@ jobs:
           message: |
             @room
 
-            🚨 **Release pipeline ${{ env.CONCLUSION }}** — no artifacts were produced.<br/>
+            ${{ steps.details.outputs.state == 'degraded'
+                && '⚠️ **Release pipeline shipped an INCOMPLETE release** (run went green).'
+                || '🚨 **Release pipeline failed** — no artifacts were produced.' }}<br/>
             Workflow: **${{ env.WORKFLOW_NAME }}**<br/>
-            Run: [#${{ env.RUN_NUMBER }}](${{ env.RUN_URL }})<br/>
+            Run: [#${{ env.RUN_NUMBER }}](${{ env.RUN_URL }}) — conclusion `${{ env.CONCLUSION }}`<br/>
             Consecutive non-green runs: **${{ steps.details.outputs.streak }}**<br/>
             Tracking issue: ${{ steps.issue.outputs.url }}
 
@@ -192,18 +263,18 @@ jobs:
       # ---------------------------------------------------------------- recovery path
 
       - name: Close tracking issue on recovery
-        if: env.CONCLUSION == 'success' && steps.tracking.outputs.number != ''
+        if: steps.details.outputs.state == 'green' && steps.tracking.outputs.number != ''
         shell: bash
         env:
           EXISTING: ${{ steps.tracking.outputs.number }}
         run: |
           set -eo pipefail
           gh issue comment "$EXISTING" --repo "$GH_REPO" \
-            --body "✅ Recovered — [\`${WORKFLOW_NAME}\` #${RUN_NUMBER}](${RUN_URL}) succeeded. Closing."
+            --body "✅ Recovered — [\`${WORKFLOW_NAME}\` #${RUN_NUMBER}](${RUN_URL}) completed with no failed or skipped publish stages. Closing."
           gh issue close "$EXISTING" --repo "$GH_REPO" --reason completed
 
       - name: Matrix recovery notice
-        if: env.CONCLUSION == 'success' && steps.tracking.outputs.number != '' && env.MATRIX_ACCESS_TOKEN != ''
+        if: steps.details.outputs.state == 'green' && steps.tracking.outputs.number != '' && env.MATRIX_ACCESS_TOKEN != ''
         continue-on-error: true
         uses: s3krit/matrix-message-action@70ad3fb812ee0e45ff8999d6af11cafad11a6ecf # v0.0.3
         with:
@@ -222,9 +293,10 @@ jobs:
         env:
           ISSUE_URL: ${{ steps.issue.outputs.url }}
           STREAK: ${{ steps.details.outputs.streak }}
+          STATE: ${{ steps.details.outputs.state }}
         run: |
           {
-            echo "### ${WORKFLOW_NAME} → ${CONCLUSION}"
+            echo "### ${WORKFLOW_NAME} → ${CONCLUSION} (state: ${STATE})"
             echo ""
             echo "- Run: [#${RUN_NUMBER}](${RUN_URL})"
             echo "- Consecutive non-green runs: ${STREAK}"
