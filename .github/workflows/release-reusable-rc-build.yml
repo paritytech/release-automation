@@ -39,6 +39,10 @@ jobs:
   setup:
     runs-on: parity-default
     strategy:
+      # One binary failing must not cancel the rest of the matrix: a single flaky
+      # runner would otherwise take out the whole build stage, which then skips the
+      # Docker and publish stages and fails the entire weekly release.
+      fail-fast: false
       matrix:
         binaries: ${{ fromJSON(inputs.binary) }}
     outputs:
@@ -74,6 +78,10 @@ jobs:
       image: ${{ needs.setup.outputs.IMAGE }}
     environment: release
     strategy:
+      # One binary failing must not cancel the rest of the matrix: a single flaky
+      # runner would otherwise take out the whole build stage, which then skips the
+      # Docker and publish stages and fails the entire weekly release.
+      fail-fast: false
       matrix:
         binaries: ${{ fromJSON(inputs.binary) }}
     # env:
@@ -151,6 +159,10 @@ jobs:
     runs-on: parity-macos
     environment: release
     strategy:
+      # One binary failing must not cancel the rest of the matrix: a single flaky
+      # runner would otherwise take out the whole build stage, which then skips the
+      # Docker and publish stages and fails the entire weekly release.
+      fail-fast: false
       matrix:
         binaries: ${{ fromJSON(inputs.binary) }}
     # env:
