@@ -58,6 +58,7 @@ jobs:
       TRIGGER_EVENT: ${{ github.event.workflow_run.event }}
       HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
       ISSUE_LABEL: release-pipeline-failure
+    environment: release
 
     steps:
       - name: Collect run details
