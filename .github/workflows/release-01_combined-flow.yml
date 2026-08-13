@@ -207,7 +207,7 @@ jobs:
       binary: ${{ needs.calculate-weekly-version.outputs.binary }}
       weekly_release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
       registry: docker.io
-      owner: parity
+      owner: paritypr
       version: ${{ needs.validate-inputs.outputs.node_version }}
       build_run_id: ${{ github.run_id }}
     secrets: inherit
