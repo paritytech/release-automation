@@ -58,6 +58,7 @@ jobs:
       TRIGGER_EVENT: ${{ github.event.workflow_run.event }}
       HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
       ISSUE_LABEL: release-pipeline-failure
+      ROOM_ID: '!GvAyzgCDgaVrvibaAF:parity.io'
     environment: release
 
     steps:
@@ -244,15 +245,15 @@ jobs:
         continue-on-error: true
         uses: s3krit/matrix-message-action@70ad3fb812ee0e45ff8999d6af11cafad11a6ecf # v0.0.3
         with:
-          room_id: '!cqAmzdIcbOFwrdrubV:parity.io'
+          room_id: ${{ env.ROOM_ID }}
           access_token: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
           server: m.parity.io
           message: |
             @room
 
             ${{ steps.details.outputs.state == 'degraded'
-                && '⚠️ **Release pipeline shipped an INCOMPLETE release** (run went green).'
-                || '🚨 **Release pipeline failed** — no artifacts were produced.' }}<br/>
+                && '⚠️ **Weekly release pipeline shipped an INCOMPLETE release** (run went green).'
+                || '🚨 **Weekly release pipeline failed** — no artifacts were produced.' }}<br/>
             Workflow: **${{ env.WORKFLOW_NAME }}**<br/>
             Run: [#${{ env.RUN_NUMBER }}](${{ env.RUN_URL }}) — conclusion `${{ env.CONCLUSION }}`<br/>
             Consecutive non-green runs: **${{ steps.details.outputs.streak }}**<br/>
@@ -278,11 +279,11 @@ jobs:
         continue-on-error: true
         uses: s3krit/matrix-message-action@70ad3fb812ee0e45ff8999d6af11cafad11a6ecf # v0.0.3
         with:
-          room_id: '!cqAmzdIcbOFwrdrubV:parity.io'
+          room_id: ${{ env.ROOM_ID }}
           access_token: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
           server: m.parity.io
           message: |
-            ✅ **Release pipeline recovered** — ${{ env.WORKFLOW_NAME }}
+            ✅ **Weekly release pipeline recovered** — ${{ env.WORKFLOW_NAME }}
             [#${{ env.RUN_NUMBER }}](${{ env.RUN_URL }})
 
             -----
