@@ -507,13 +507,13 @@ validate_weekly_release_tag() {
     fi
 }
 
-# Prepare docker weekly tag form the polkadot weekly tag
+# Prepare docker weekly tag from the polkadot weekly tag
 #
-# input: tag (polkaodot-weeklyW#-rcX)
-# output: weeklyW#-rcX
+# input: tag (polkadot-weeklyYYYYwNN(-rcX))
+# output: weeklyYYYYwNN(-rcX)
 prepare_docker_weekly_tag() {
   tag="$1"
-  if [[ "$tag" =~ weeklyW[0-9]+(-rc[0-9]+)? ]]; then
+  if [[ "$tag" =~ weekly[0-9]{4}[Ww][0-9]+(-rc[0-9]+)? ]]; then
       echo "${BASH_REMATCH[0]}"
   else
       echo "Tag is invalid: $tag"

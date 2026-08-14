@@ -64,6 +64,85 @@ jobs:
           RELEASE_TAG=$(validate_weekly_release_tag $WEEKLY_RELEASE_TAG)
           echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
 
+  collect-artifacts:
+    needs: [ validate-inputs ]
+    runs-on: ubuntu-latest
+    outputs:
+      binaries: ${{ steps.binaries.outputs.matrix }}
+      binary_count: ${{ steps.binaries.outputs.count }}
+      runtime_count: ${{ steps.runtimes.outputs.count }}
+
+    steps:
+      - name: Collect built binaries
+        id: binaries
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          # A release may deliberately build only a subset of the binaries, and a single
+          # binary can fail without cancelling the rest of the build matrix. Derive the
+          # publish matrix from the artifacts that actually exist rather than from a
+          # static list, so this stage never tries to download something never built.
+          names=$(gh api --paginate \
+            "repos/${REPO}/actions/runs/${BUILD_RUN_ID}/artifacts?per_page=100" \
+            --jq '.artifacts[].name')
+
+          echo "Artifacts present in run ${BUILD_RUN_ID}:"
+          echo "$names"
+
+          # Binary artifacts are named "<binary>_<target>"; runtimes ("<chain>-runtime")
+          # carry no target suffix and are filtered out here. The endpoint reports every
+          # run attempt, so a re-run of one build job lists its artifact twice - dedup,
+          # or the same asset gets uploaded twice.
+          matrix=$(jq -Rsc '
+            [ split("\n")[]
+              | select(length > 0)
+              | capture("^(?<binary>.+)_(?<target>x86_64-unknown-linux-gnu|aarch64-apple-darwin)$") ]
+            | unique
+            | { include: . }' <<< "$names")
+
+          count=$(jq '.include | length' <<< "$matrix")
+
+          echo "Publishing ${count} binary artifact(s):"
+          jq -r '.include[] | "  - \(.binary) (\(.target))"' <<< "$matrix"
+
+          # A binary built for a target this filter does not know about would be dropped
+          # without a trace, so name it instead of silently shipping an incomplete release.
+          unknown=$(jq -Rr '
+            select(test("_"))
+            | select(test("_(x86_64-unknown-linux-gnu|aarch64-apple-darwin)$") | not)' <<< "$names")
+          if [[ -n "$unknown" ]]; then
+            echo "::warning::Artifacts with an unrecognised target suffix were not published: $(tr '\n' ' ' <<< "$unknown")"
+          fi
+
+          if [[ "$count" -eq 0 ]]; then
+            echo "::warning::No binary artifacts found in run ${BUILD_RUN_ID}, skipping the binary upload."
+          fi
+
+          echo "matrix=${matrix}" >> $GITHUB_OUTPUT
+          echo "count=${count}" >> $GITHUB_OUTPUT
+
+      - name: Count runtimes to publish
+        id: runtimes
+        env:
+          RUNTIMES: ${{ inputs.runtimes }}
+        run: |
+          # find_runtimes returns '{ "include": [] }' when nothing matched (lib.sh), which
+          # is a non-empty string that still fails the job as an empty Actions matrix, so
+          # the emptiness has to be judged on the include array rather than the string.
+          if [[ -z "$RUNTIMES" ]]; then
+            count=0
+          else
+            count=$(jq '.include | length' <<< "$RUNTIMES")
+          fi
+
+          echo "Publishing ${count} runtime(s)"
+          if [[ "$count" -eq 0 ]]; then
+            echo "::warning::No runtimes passed to this release, skipping the runtime upload."
+          fi
+
+          echo "count=${count}" >> $GITHUB_OUTPUT
 
   publish-release-draft:
     runs-on: ubuntu-latest
@@ -169,7 +248,8 @@ jobs:
 
   publish-runtimes:
     # if: ${{ inputs.crates_only == false && inputs.no_runtimes == false }}
-    needs: [ validate-inputs, publish-release-draft ]
+    if: ${{ needs.collect-artifacts.outputs.runtime_count != '0' }}
+    needs: [ validate-inputs, collect-artifacts, publish-release-draft ]
     environment: release
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -239,14 +319,15 @@ jobs:
 
   publish-release-artifacts:
     # if: ${{ inputs.crates_only == false }}
-    needs: [ validate-inputs, publish-release-draft ]
+    if: ${{ needs.collect-artifacts.outputs.binary_count != '0' }}
+    needs: [ validate-inputs, collect-artifacts, publish-release-draft ]
     environment: release
     continue-on-error: true
     runs-on: ubuntu-latest
     strategy:
-      matrix:
-        binary: [ polkadot, polkadot-execute-worker, polkadot-prepare-worker, polkadot-parachain, polkadot-omni-node, frame-omni-bencher, chain-spec-builder, substrate-node,eth-rpc, subkey ]
-        target: [ x86_64-unknown-linux-gnu, aarch64-apple-darwin ]
+      # One binary failing to upload must not cancel the uploads of the others.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.collect-artifacts.outputs.binaries) }}
 
     steps:
       - name: Checkout sources
