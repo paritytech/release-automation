@@ -107,6 +107,9 @@ env:
   # friends). The workflow_dispatch `options:` list above has to be kept in sync by
   # hand - GitHub only accepts literals there.
   DOCKER_IMAGES: '[ "polkadot", "polkadot-parachain", "polkadot-omni-node", "chain-spec-builder", "eth-rpc" ]'
+  # Image platform -> build target its binaries come from. A platform is only built
+  # when the image's base image is published for it (see "Resolve image platforms").
+  PLATFORMS: '{ "amd64": "x86_64-unknown-linux-gnu", "arm64": "aarch64-unknown-linux-gnu" }'
   # IMAGE_TYPE: ${{ inputs.image_type }}
 
 jobs:
@@ -195,86 +198,7 @@ jobs:
             private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
             owner: paritytech
 
-      - name: Download artifacts
-        env:
-          GITHUB_TOKEN: ${{ steps.generate_write_token.outputs.token }}
-          RUN_ID: ${{ inputs.build_run_id }}
-          BINARY: ${{ matrix.binary }}
-          DEST: ${{ github.workspace }}/release-artifacts
-        run: |
-          type -p gh >/dev/null || {
-            (type -p wget >/dev/null || (sudo apt update && sudo apt install wget -y)) \
-              && sudo mkdir -p -m 755 /etc/apt/keyrings \
-              && out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-              && cat $out | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
-              && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
-              && sudo mkdir -p -m 755 /etc/apt/sources.list.d \
-              && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-              && sudo apt update \
-              && sudo apt install gh -y
-          }
-
-          # The binaries this image injects, and the only artifacts this leg downloads:
-          # every leg used to pull every linux artifact of the build run. The polkadot
-          # image bundles the two workers, which the build stage uploads separately.
-          if [[ "$BINARY" == "polkadot" ]]; then
-            bins=(polkadot polkadot-prepare-worker polkadot-execute-worker)
-          else
-            bins=("$BINARY")
-          fi
-
-          patterns=()
-          for bin in "${bins[@]}"; do
-            patterns+=(-p "${bin}_x86_64-unknown-linux-gnu")
-          done
-
-          mkdir -p "$DEST"
-          gh run download "$RUN_ID" --repo "$REPO" --dir "$DEST" "${patterns[@]}"
-          # move all the downloaded files to the root directory
-          find "$DEST" -mindepth 2 -type f -print0 | xargs -0 -I{} mv {} "$DEST"/
-          # delete all the empty directories
-          find "$DEST" -mindepth 1 -type d -empty -delete
-          ls -al "$DEST"
-
-          # gh run download only fails when *no* pattern matches, so a partially built
-          # set still reaches this point. build-injected.sh runs with `set -e` disabled,
-          # so its `cp` of a missing binary would not stop the build either, and the
-          # image would be published with a binary silently absent from it.
-          missing=()
-          for bin in "${bins[@]}"; do
-            [[ -f "$DEST/$bin" ]] || missing+=("$bin")
-          done
-          if [[ ${#missing[@]} -gt 0 ]]; then
-            echo "::error::The ${BINARY} image requires ${bins[*]}, but run ${RUN_ID} has no artifact for: ${missing[*]}"
-            exit 1
-          fi
-
-          # Consumed by the sha256 check below, so the set is defined in exactly one place.
-          echo "IMAGE_BINS=${bins[*]}" >> $GITHUB_ENV
-
-      - name: Check sha256 of the ${{ matrix.binary }} binaries
-        working-directory: release-artifacts
-        run: |
-          . ../.github/scripts/common/lib.sh
-
-          # IMAGE_BINS comes from the download step above. No `|| echo ERR` here: a
-          # corrupt binary has to fail the job rather than log and carry on into a
-          # published image.
-          for bin in $IMAGE_BINS; do
-            echo "Checking binary $bin"
-            check_sha256 "$bin"
-          done
-
-      # - name: Check GPG ${{ env.BINARY }}
-      #   # if: ${{ inputs.binary == 'polkadot-parachain' || inputs.binary == 'polkadot' }}
-      #   working-directory: release-artifacts
-      #   run: |
-      #     . ../.github/scripts/common/lib.sh
-      #     import_gpg_keys
-      #     check_gpg $BINARY
-
       - name: Fetch weekly rc commit and tag
-        working-directory: release-artifacts
         # if: ${{ env.IMAGE_TYPE == 'rc' }}
         id: fetch_rc_refs
         shell: bash
@@ -306,68 +230,185 @@ jobs:
           echo "Image: ${REGISTRY}/${DOCKER_OWNER}/${image_repo}"
           echo "IMAGE=${REGISTRY}/${DOCKER_OWNER}/${image_repo}" >> $GITHUB_ENV
 
-      - name: Build Injected Container image for polkadot rc
-        if: ${{ matrix.binary == 'polkadot' }}
+      - name: Resolve the ${{ matrix.binary }} build settings
         env:
-          ARTIFACTS_FOLDER: release-artifacts
-          IMAGE_NAME: polkadot
-          OWNER: ${{ env.DOCKER_OWNER }}
+          BINARY: ${{ matrix.binary }}
+        run: |
+          # build-injected.sh reads DOCKERFILE and SKIP_IMAGE_VALIDATION from the
+          # environment. The polkadot wrapper exports the same DOCKERFILE itself; it is
+          # set here too so the platform check below can read it.
+          case "$BINARY" in
+            polkadot)
+              echo "BUILD_SCRIPT=./docker/scripts/polkadot/build-injected.sh" >> $GITHUB_ENV
+              echo "DOCKERFILE=docker/dockerfiles/polkadot/polkadot_injected.Dockerfile" >> $GITHUB_ENV
+              ;;
+            polkadot-parachain)
+              echo "DOCKERFILE=docker/dockerfiles/polkadot-parachain/polkadot-parachain_injected.Dockerfile" >> $GITHUB_ENV
+              ;;
+            eth-rpc)
+              echo "DOCKERFILE=docker/dockerfiles/eth-rpc/eth-rpc_injected.Dockerfile" >> $GITHUB_ENV
+              # build-injected.sh validates by shelling into the image with /bin/bash, which
+              # this image removes along with /usr/bin. The verify step below covers it.
+              echo "SKIP_IMAGE_VALIDATION=true" >> $GITHUB_ENV
+              ;;
+            *)
+              echo "DOCKERFILE=docker/dockerfiles/binary_injected.Dockerfile" >> $GITHUB_ENV
+              ;;
+          esac
+
+      - name: Set up QEMU
+        # Runs the arm64 image steps and smoke tests on this amd64 runner.
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Resolve image platforms
+        env:
+          BINARY: ${{ matrix.binary }}
+        run: |
+          # An image can only be built for the platforms its base image is published
+          # for. A missing platform is dropped with a warning rather than failing the
+          # release. The injected Dockerfiles are single-stage, so the first FROM is the
+          # base image; a single-manifest base image carries no platform list and is amd64.
+          base_image=$(awk 'toupper($1) == "FROM" { print $2; exit }' "$DOCKERFILE")
+          base_archs=$($ENGINE buildx imagetools inspect --raw "$base_image" \
+            | jq -r '[.manifests[]?.platform.architecture] | if length == 0 then ["amd64"] else . end | .[]')
+          echo "${base_image} is published for: $(tr '\n' ' ' <<< "$base_archs")"
+
+          archs=()
+          for arch in $(jq -r 'keys[]' <<< "$PLATFORMS"); do
+            if grep -qx "$arch" <<< "$base_archs"; then
+              archs+=("$arch")
+            else
+              echo "::warning::${base_image} has no linux/${arch} variant, the ${arch} image of ${BINARY} is not published."
+            fi
+          done
+
+          if [[ ${#archs[@]} -eq 0 ]]; then
+            echo "::error::${base_image} is published for none of the platforms in PLATFORMS"
+            exit 1
+          fi
+
+          echo "Building ${IMAGE} for: ${archs[*]}"
+          echo "ARCHS=${archs[*]}" >> $GITHUB_ENV
+
+      - name: Download artifacts
+        env:
+          GITHUB_TOKEN: ${{ steps.generate_write_token.outputs.token }}
+          RUN_ID: ${{ inputs.build_run_id }}
+          BINARY: ${{ matrix.binary }}
+          DEST: ${{ github.workspace }}/release-artifacts
+        run: |
+          type -p gh >/dev/null || {
+            (type -p wget >/dev/null || (sudo apt update && sudo apt install wget -y)) \
+              && sudo mkdir -p -m 755 /etc/apt/keyrings \
+              && out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+              && cat $out | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+              && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+              && sudo mkdir -p -m 755 /etc/apt/sources.list.d \
+              && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+              && sudo apt update \
+              && sudo apt install gh -y
+          }
+
+          # The binaries this image injects, and the only artifacts this leg downloads.
+          # The polkadot image bundles the two workers, which the build stage uploads
+          # separately.
+          if [[ "$BINARY" == "polkadot" ]]; then
+            bins=(polkadot polkadot-prepare-worker polkadot-execute-worker)
+          else
+            bins=("$BINARY")
+          fi
+
+          # One folder per platform: the binaries carry the same file name for every
+          # target, and build-injected.sh takes a single artifacts folder.
+          patterns=()
+          for arch in $ARCHS; do
+            target=$(jq -r --arg a "$arch" '.[$a]' <<< "$PLATFORMS")
+            for bin in "${bins[@]}"; do
+              patterns+=(-p "${bin}_${target}")
+            done
+          done
+
+          mkdir -p "$DEST"
+          gh run download "$RUN_ID" --repo "$REPO" --dir "$DEST" "${patterns[@]}"
+
+          # gh run download only fails when *no* pattern matches, so a partially built
+          # set still reaches this point. build-injected.sh runs with `set -e` disabled,
+          # so its `cp` of a missing binary would not stop the build either, and the
+          # image would be published with a binary silently absent from it.
+          missing=()
+          for arch in $ARCHS; do
+            target=$(jq -r --arg a "$arch" '.[$a]' <<< "$PLATFORMS")
+            mkdir -p "$DEST/$arch"
+            for bin in "${bins[@]}"; do
+              if [[ -d "$DEST/${bin}_${target}" ]]; then
+                mv "$DEST/${bin}_${target}"/* "$DEST/$arch/"
+                rmdir "$DEST/${bin}_${target}"
+              fi
+              [[ -f "$DEST/$arch/$bin" ]] || missing+=("${bin}_${target}")
+            done
+          done
+
+          if [[ "$BINARY" == "polkadot-parachain" ]]; then
+            for arch in $ARCHS; do
+              mkdir -p "$DEST/$arch/specs"
+              cp cumulus/parachains/chain-specs/*.json "$DEST/$arch/specs"
+            done
+          fi
+          ls -alR "$DEST"
+
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "::error::The ${BINARY} image requires ${bins[*]} for every platform, but run ${RUN_ID} has no artifact for: ${missing[*]}"
+            exit 1
+          fi
+
+          # Consumed by the sha256 check below, so the set is defined in exactly one place.
+          echo "IMAGE_BINS=${bins[*]}" >> $GITHUB_ENV
+
+      - name: Check sha256 of the ${{ matrix.binary }} binaries
+        working-directory: release-artifacts
+        run: |
+          . ../.github/scripts/common/lib.sh
+
+          # IMAGE_BINS comes from the download step above. No `|| echo ERR` here: a
+          # corrupt binary has to fail the job rather than log and carry on into a
+          # published image.
+          for arch in $ARCHS; do
+            pushd "$arch" > /dev/null
+            for bin in $IMAGE_BINS; do
+              echo "Checking binary $arch/$bin"
+              check_sha256 "$bin"
+            done
+            popd > /dev/null
+          done
+
+      # - name: Check GPG ${{ env.BINARY }}
+      #   # if: ${{ inputs.binary == 'polkadot-parachain' || inputs.binary == 'polkadot' }}
+      #   working-directory: release-artifacts
+      #   run: |
+      #     . ../.github/scripts/common/lib.sh
+      #     import_gpg_keys
+      #     check_gpg $BINARY
+
+      - name: Build Injected Container images for ${{ matrix.binary }}
+        env:
           TAGS: ${{ join(steps.fetch_rc_refs.outputs.*, ',') }}
           BINARY: ${{ matrix.binary }}
         run: |
           ls -al
-          echo "Building container for polkadot"
-          ./docker/scripts/polkadot/build-injected.sh $ARTIFACTS_FOLDER
+          # One single-platform image per arch, tagged with an arch suffix; the push
+          # step stitches them into multi-platform tags. DOCKER_DEFAULT_PLATFORM is
+          # honoured by the build and by the smoke test inside build-injected.sh.
+          IFS=',' read -r -a tags <<< "$TAGS"
+          for arch in $ARCHS; do
+            arch_tags=$(printf "%s-${arch}," "${tags[@]}")
+            echo "Building ${IMAGE} for linux/${arch} with tags ${arch_tags%,}"
+            DOCKER_DEFAULT_PLATFORM="linux/${arch}" \
+            ARTIFACTS_FOLDER="release-artifacts/${arch}" \
+            TAGS="${arch_tags%,}" \
+              ${BUILD_SCRIPT:-./docker/scripts/build-injected.sh} "release-artifacts/${arch}"
+          done
 
-      - name: Build Injected Container image for polkadot-omni-node/chain-spec-builder
-        if: ${{ matrix.binary == 'polkadot-omni-node' || matrix.binary == 'chain-spec-builder' }}
-        env:
-          ARTIFACTS_FOLDER: release-artifacts
-          IMAGE_NAME: ${{ matrix.binary }}
-          OWNER: ${{ env.DOCKER_OWNER }}
-          TAGS: ${{ join(steps.fetch_rc_refs.outputs.*, ',') }}
-          BINARY: ${{ matrix.binary }}
-        run: |
-          ls -al
-          echo "Building container for ${{ matrix.binary }}"
-          ./docker/scripts/build-injected.sh
-
-      - name: Build Injected Container image for polkadot-parachain
-        if: ${{ matrix.binary == 'polkadot-parachain' }}
-        env:
-          ARTIFACTS_FOLDER: release-artifacts
-          IMAGE_NAME: polkadot-parachain
-          OWNER: ${{ env.DOCKER_OWNER }}
-          DOCKERFILE: docker/dockerfiles/polkadot-parachain/polkadot-parachain_injected.Dockerfile
-          TAGS: ${{ join(steps.fetch_rc_refs.outputs.*, ',') }}
-          BINARY: ${{ matrix.binary }}
-        run: |
-          ls -al
-          ls -al $ARTIFACTS_FOLDER
-          mkdir -p $ARTIFACTS_FOLDER/specs
-          cp cumulus/parachains/chain-specs/*.json $ARTIFACTS_FOLDER/specs
-
-          echo "Building container for polkadot-parachain"
-          ./docker/scripts/build-injected.sh
-
-      - name: Build Injected Container image for eth-rpc
-        if: ${{ matrix.binary == 'eth-rpc' }}
-        env:
-          ARTIFACTS_FOLDER: release-artifacts
-          IMAGE_NAME: eth-rpc
-          OWNER: ${{ env.DOCKER_OWNER }}
-          DOCKERFILE: docker/dockerfiles/eth-rpc/eth-rpc_injected.Dockerfile
-          TAGS: ${{ join(steps.fetch_rc_refs.outputs.*, ',') }}
-          BINARY: ${{ matrix.binary }}
-          # build-injected.sh validates by shelling into the image with /bin/bash, which
-          # this image removes along with /usr/bin. The next step validates it instead.
-          SKIP_IMAGE_VALIDATION: "true"
-        run: |
-          ls -al
-          echo "Building container for eth-rpc"
-          ./docker/scripts/build-injected.sh
-
-      - name: Verify the ${{ matrix.binary }} image was built
+      - name: Verify the ${{ matrix.binary }} images were built
         env:
           # IMAGE comes from the "Resolve the image name" step above.
           TAGS: ${{ join(steps.fetch_rc_refs.outputs.*, ',') }}
@@ -375,24 +416,28 @@ jobs:
         run: |
           # build-injected.sh runs with `set -e` disabled upstream, so a failed
           # `docker build` still exits 0 and the step above goes green. Assert that every
-          # tag it was supposed to produce actually exists before logging in and pushing.
-          for tag in ${TAGS//,/ }; do
-            if ! $ENGINE image inspect "${IMAGE}:${tag}" >/dev/null 2>&1; then
-              echo "::error::${IMAGE}:${tag} was not built"
-              exit 1
-            fi
-            echo "OK ${IMAGE}:${tag}"
-          done
+          # tag it was supposed to produce exists, for the platform it was meant for,
+          # before logging in and pushing.
+          for arch in $ARCHS; do
+            for tag in ${TAGS//,/ }; do
+              built=$($ENGINE image inspect --format '{{.Architecture}}' "${IMAGE}:${tag}-${arch}" 2>/dev/null || true)
+              if [[ "$built" != "$arch" ]]; then
+                echo "::error::${IMAGE}:${tag}-${arch} was not built for ${arch} (got '${built}')"
+                exit 1
+              fi
+              echo "OK ${IMAGE}:${tag}-${arch}"
+            done
 
-          # Run the binary once pre-push. This is the validation skipped inside
-          # build-injected.sh for eth-rpc, and it catches a broken image before it is
-          # published rather than after. chain-spec-builder takes no --version.
-          first_tag="${TAGS%%,*}"
-          if [[ "$BINARY" == "chain-spec-builder" ]]; then
-            $ENGINE run --rm -i "${IMAGE}:${first_tag}"
-          else
-            $ENGINE run --rm -i "${IMAGE}:${first_tag}" --version
-          fi
+            # Run the binary once pre-push. This is the validation skipped inside
+            # build-injected.sh for eth-rpc, and it catches a broken image before it is
+            # published rather than after. chain-spec-builder takes no --version.
+            first_tag="${TAGS%%,*}-${arch}"
+            if [[ "$BINARY" == "chain-spec-builder" ]]; then
+              $ENGINE run --rm -i --platform "linux/${arch}" "${IMAGE}:${first_tag}"
+            else
+              $ENGINE run --rm -i --platform "linux/${arch}" "${IMAGE}:${first_tag}" --version
+            fi
+          done
 
       - name: Login to Dockerhub
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
@@ -400,19 +445,33 @@ jobs:
           username: ${{ secrets.PARITYPR_DOCKERHUB_USERNAME }}
           password: ${{ secrets.PARITYPR_DOCKERHUB_PASSWORD }}
 
-      - name: Push Container image for ${{ matrix.binary }}
+      - name: Push Container images for ${{ matrix.binary }}
         id: docker_push
+        env:
+          TAGS: ${{ join(steps.fetch_rc_refs.outputs.*, ',') }}
         run: |
           $ENGINE images | grep ${{ matrix.binary }}
+          # The per-arch tags go first; each plain tag is then a manifest list over
+          # them, assembled in the registry by imagetools.
           $ENGINE push --all-tags "${IMAGE}"
+
+          for tag in ${TAGS//,/ }; do
+            sources=()
+            for arch in $ARCHS; do
+              sources+=("${IMAGE}:${tag}-${arch}")
+            done
+            $ENGINE buildx imagetools create --tag "${IMAGE}:${tag}" "${sources[@]}"
+          done
 
       - name: Check version for the published image for ${{ matrix.binary }}
         env:
           RELEASE_TAG: ${{ steps.fetch_rc_refs.outputs.release }}
         run: |
-          echo "Checking tag ${RELEASE_TAG} for image ${IMAGE}"
-          if [[ ${{ matrix.binary }} == 'chain-spec-builder' ]]; then
-            $ENGINE run -i "${IMAGE}:${RELEASE_TAG}"
-          else
-            $ENGINE run -i "${IMAGE}:${RELEASE_TAG}" --version
-          fi
+          for arch in $ARCHS; do
+            echo "Checking tag ${RELEASE_TAG} for image ${IMAGE} on linux/${arch}"
+            if [[ ${{ matrix.binary }} == 'chain-spec-builder' ]]; then
+              $ENGINE run --rm -i --pull always --platform "linux/${arch}" "${IMAGE}:${RELEASE_TAG}"
+            else
+              $ENGINE run --rm -i --pull always --platform "linux/${arch}" "${IMAGE}:${RELEASE_TAG}" --version
+            fi
+          done
