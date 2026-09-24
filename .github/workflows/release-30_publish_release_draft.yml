@@ -98,7 +98,7 @@ jobs:
           matrix=$(jq -Rsc '
             [ split("\n")[]
               | select(length > 0)
-              | capture("^(?<binary>.+)_(?<target>x86_64-unknown-linux-gnu|aarch64-apple-darwin)$") ]
+              | capture("^(?<binary>.+)_(?<target>x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu|aarch64-apple-darwin)$") ]
             | unique
             | { include: . }' <<< "$names")
 
@@ -111,7 +111,7 @@ jobs:
           # without a trace, so name it instead of silently shipping an incomplete release.
           unknown=$(jq -Rr '
             select(test("_"))
-            | select(test("_(x86_64-unknown-linux-gnu|aarch64-apple-darwin)$") | not)' <<< "$names")
+            | select(test("_(x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu|aarch64-apple-darwin)$") | not)' <<< "$names")
           if [[ -n "$unknown" ]]; then
             echo "::warning::Artifacts with an unrecognised target suffix were not published: $(tr '\n' ' ' <<< "$unknown")"
           fi
@@ -351,19 +351,28 @@ jobs:
             --name "${BINARY}_${TARGET}" \
             --dir "release-artifacts/${TARGET}/${BINARY}"
 
-      - name: Rename aarch64-apple-darwin binaries
-        if: ${{ matrix.target == 'aarch64-apple-darwin' }}
+      - name: Check sha256 of ${{ matrix.binary }}
+        env:
+          BINARY: ${{ matrix.binary }}
+        working-directory: ${{ github.workspace}}/release-artifacts/${{ matrix.target }}/${{ matrix.binary }}
+        run: |
+          . ../../../.github/scripts/common/lib.sh
+
+          # The checksum written at build time is what proves the download is intact.
+          # A mismatch fails the job rather than shipping the file.
+          check_sha256 "$BINARY"
+
+      - name: Rename ${{ matrix.target }} binaries
+        # The x86_64 linux asset keeps the bare binary name; every other target is
+        # suffixed with its triple so the assets do not collide on the release page.
+        if: ${{ matrix.target != 'x86_64-unknown-linux-gnu' }}
         env:
           BINARY: ${{ matrix.binary }}
           TARGET: ${{ matrix.target }}
         working-directory: ${{ github.workspace}}/release-artifacts/${{ matrix.target }}/${{ matrix.binary }}
         run: |
-          . ../../../.github/scripts/common/lib.sh
-
-          mv "$BINARY" "${BINARY}-aarch64-apple-darwin"
-
-          sha256sum "${BINARY}-aarch64-apple-darwin" | tee "${BINARY}-aarch64-apple-darwin.sha256"
-          check_sha256 "${BINARY}-aarch64-apple-darwin" && echo "OK" || echo "ERR"
+          mv "$BINARY" "${BINARY}-${TARGET}"
+          sha256sum "${BINARY}-${TARGET}" | tee "${BINARY}-${TARGET}.sha256"
 
       # - name: Generate content write token for the release automation
       #   id: generate_write_token
@@ -383,11 +392,11 @@ jobs:
           TARGET: ${{ matrix.target }}
         working-directory: ${{ github.workspace}}/release-artifacts/${{ matrix.target }}/${{ matrix.binary }}
         run: |
-          if [[ "$TARGET" == "aarch64-apple-darwin" ]]; then
+          if [[ "$TARGET" != "x86_64-unknown-linux-gnu" ]]; then
             gh release upload "$RELEASE_TAG" \
               --repo "$REPO" \
-              "${BINARY}-aarch64-apple-darwin" \
-              "${BINARY}-aarch64-apple-darwin.sha256"
+              "${BINARY}-${TARGET}" \
+              "${BINARY}-${TARGET}.sha256"
           else
             gh release upload "$RELEASE_TAG" \
               --repo "$REPO" \
