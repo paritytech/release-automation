@@ -256,9 +256,13 @@ jobs:
               ;;
           esac
 
-      - name: Set up QEMU
-        # Runs the arm64 image steps and smoke tests on this amd64 runner.
-        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - name: Set up buildx
+        # The platform check and the manifest lists need the buildx plugin. The docker
+        # driver keeps the built images in the daemon, where build-injected.sh and the
+        # verify step expect them.
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver: docker
 
       - name: Resolve image platforms
         env:
@@ -267,8 +271,9 @@ jobs:
           # An image can only be built for the platforms its base image is published
           # for. A missing platform is dropped with a warning rather than failing the
           # release. The injected Dockerfiles are single-stage, so the first FROM is the
-          # base image; a single-manifest base image carries no platform list and is amd64.
-          base_image=$(awk 'toupper($1) == "FROM" { print $2; exit }' "$DOCKERFILE")
+          # base image (skipping flags such as --platform); a single-manifest base image
+          # carries no platform list and is amd64.
+          base_image=$(awk 'toupper($1) == "FROM" { for (i = 2; i <= NF; i++) if ($i !~ /^--/) { print $i; exit } }' "$DOCKERFILE")
           base_archs=$($ENGINE buildx imagetools inspect --raw "$base_image" \
             | jq -r '[.manifests[]?.platform.architecture] | if length == 0 then ["amd64"] else . end | .[]')
           echo "${base_image} is published for: $(tr '\n' ' ' <<< "$base_archs")"
@@ -289,6 +294,11 @@ jobs:
 
           echo "Building ${IMAGE} for: ${archs[*]}"
           echo "ARCHS=${archs[*]}" >> $GITHUB_ENV
+
+      - name: Set up QEMU
+        # Runs the arm64 image steps and smoke tests on this amd64 runner.
+        if: ${{ contains(env.ARCHS, 'arm64') }}
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
       - name: Download artifacts
         env:
