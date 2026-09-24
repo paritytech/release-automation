@@ -71,7 +71,7 @@ jobs:
           fi
 
   build-rc:
-    if: ${{ inputs.target == 'x86_64-unknown-linux-gnu' }}
+    if: ${{ inputs.target == 'x86_64-unknown-linux-gnu' || inputs.target == 'aarch64-unknown-linux-gnu' }}
     needs: [setup]
     runs-on: ${{ needs.setup.outputs.RUNNER }}
     container:
@@ -111,6 +111,26 @@ jobs:
       #     . ./.github/scripts/common/lib.sh
 
       #     import_gpg_keys
+
+      - name: Install aarch64 cross toolchain
+        if: ${{ inputs.target == 'aarch64-unknown-linux-gnu' }}
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross qemu-user-static
+          rustup target add aarch64-unknown-linux-gnu
+
+          # Target-scoped so build scripts and proc macros keep compiling for the host.
+          # The bindgen include path is for librocksdb-sys, which parses the C headers
+          # of the target sysroot.
+          {
+            echo "TARGET=aarch64-unknown-linux-gnu"
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc"
+            echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc"
+            echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++"
+            echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar"
+            echo "BINDGEN_EXTRA_CLANG_ARGS_aarch64_unknown_linux_gnu=-I/usr/aarch64-linux-gnu/include"
+          } >> $GITHUB_ENV
 
       - name: Build binary
         env:
