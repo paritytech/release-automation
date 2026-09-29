@@ -1,0 +1,104 @@
+# Gate for every release workflow that builds, signs or publishes artifacts.
+#
+# Replaces paritytech-release/sync-workflows/.../check-synchronization.yml@main.
+# That gate proved the release fork was in sync with upstream; with pipelines
+# checking out paritytech/polkadot-sdk at an explicit ref there is no fork to
+# desync, so the property holds by construction and the gate is replaced rather
+# than ported.
+#
+# Call it as the first job of any release workflow, and take every downstream
+# `actions/checkout` ref from its `sha` output rather than from the tag name:
+#
+#   jobs:
+#     guard:
+#       uses: ./.github/workflows/release-guard.yml
+#       with:
+#         release_tag: ${{ inputs.release_tag }}
+#
+#     build:
+#       needs: [guard]
+#       steps:
+#         - uses: actions/checkout@...
+#           with:
+#             repository: paritytech/polkadot-sdk
+#             ref: ${{ needs.guard.outputs.sha }}   # never inputs.release_tag
+#
+# Taking the ref from the guard makes the dependency load-bearing: a job wired
+# without the guard has no SHA to check out and fails, instead of silently
+# building an unverified ref.
+#
+# Needs no secrets and no environment: polkadot-sdk is public, so the default
+# GITHUB_TOKEN can read its refs. The guard therefore runs before any production
+# credential is in scope.
+
+name: Release - Guard
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Release tag to verify, e.g. polkadot-stable2609-rc2
+        required: true
+        type: string
+      upstream_repo:
+        description: Repository the release is built from
+        required: false
+        type: string
+        default: paritytech/polkadot-sdk
+    outputs:
+      sha:
+        description: Verified commit SHA. Use this for every downstream checkout.
+        value: ${{ jobs.guard.outputs.sha }}
+      stable_branch:
+        description: Release branch derived from the tag, e.g. stable2609.
+        value: ${{ jobs.guard.outputs.stable_branch }}
+      verified_branch:
+        description: Protected branch the commit was proved reachable from.
+        value: ${{ jobs.guard.outputs.verified_branch }}
+
+  # Standalone runs, for testing the guard against a tag without a caller.
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to verify, e.g. polkadot-stable2609-rc2
+        required: true
+        type: string
+      upstream_repo:
+        description: Repository the release is built from
+        required: false
+        type: string
+        default: paritytech/polkadot-sdk
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.verify.outputs.sha }}
+      stable_branch: ${{ steps.verify.outputs.stable_branch }}
+      verified_branch: ${{ steps.verify.outputs.verified_branch }}
+    steps:
+      - name: Check the release killswitch
+        env:
+          RELEASES_ON: ${{ vars.RELEASES_ON }}
+        run: |
+          if [[ "$RELEASES_ON" != "true" ]]; then
+            echo -n "::error title=Releases are disabled::"
+            echo "vars.RELEASES_ON is '${RELEASES_ON:-unset}', expected 'true'. Set it to 'true' to allow releases."
+            exit 1
+          fi
+
+      # Checks out release-automation itself, NOT the release tag. The guard must
+      # never take its own verification logic from the tree it is verifying.
+      - name: Checkout guard helpers
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Verify the release ref
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          UPSTREAM_REPO: ${{ inputs.upstream_repo }}
+        run: ./.github/scripts/guard/verify-release-ref.sh
