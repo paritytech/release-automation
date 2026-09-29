@@ -1,13 +1,12 @@
-# Gate for every release workflow that builds, signs or publishes artifacts.
+# Gate for every stable release workflow that builds, signs or publishes
+# artifacts. It accepts stable tags only; the weekly pipeline is not covered.
 #
 # Replaces paritytech-release/sync-workflows/.../check-synchronization.yml@main.
-# That gate proved the release fork was in sync with upstream; with pipelines
-# checking out paritytech/polkadot-sdk at an explicit ref there is no fork to
-# desync, so the property holds by construction and the gate is replaced rather
-# than ported.
-#
-# Call it as the first job of any release workflow, and take every downstream
-# `actions/checkout` ref from its `sha` output rather than from the tag name:
+
+# Call it only as a local reusable workflow from release-automation, as the
+# first job, and take every downstream `actions/checkout` ref from its `sha`
+# output rather than from the tag name. Every consuming job must assert the SHA
+# before checking out:
 #
 #   jobs:
 #     guard:
@@ -18,18 +17,16 @@
 #     build:
 #       needs: [guard]
 #       steps:
+#         - name: Assert the guard ran
+#           env:
+#             GUARD_SHA: ${{ needs.guard.outputs.sha }}
+#           run: '[[ "$GUARD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No verified SHA from the release guard"; exit 1; }'
+#
 #         - uses: actions/checkout@...
 #           with:
 #             repository: paritytech/polkadot-sdk
 #             ref: ${{ needs.guard.outputs.sha }}   # never inputs.release_tag
 #
-# Taking the ref from the guard makes the dependency load-bearing: a job wired
-# without the guard has no SHA to check out and fails, instead of silently
-# building an unverified ref.
-#
-# Needs no secrets and no environment: polkadot-sdk is public, so the default
-# GITHUB_TOKEN can read its refs. The guard therefore runs before any production
-# credential is in scope.
 
 name: Release - Guard
 
@@ -40,11 +37,6 @@ on:
         description: Release tag to verify, e.g. polkadot-stable2609-rc2
         required: true
         type: string
-      upstream_repo:
-        description: Repository the release is built from
-        required: false
-        type: string
-        default: paritytech/polkadot-sdk
     outputs:
       sha:
         description: Verified commit SHA. Use this for every downstream checkout.
@@ -52,9 +44,6 @@ on:
       stable_branch:
         description: Release branch derived from the tag, e.g. stable2609.
         value: ${{ jobs.guard.outputs.stable_branch }}
-      verified_branch:
-        description: Protected branch the commit was proved reachable from.
-        value: ${{ jobs.guard.outputs.verified_branch }}
 
   # Standalone runs, for testing the guard against a tag without a caller.
   workflow_dispatch:
@@ -63,11 +52,6 @@ on:
         description: Release tag to verify, e.g. polkadot-stable2609-rc2
         required: true
         type: string
-      upstream_repo:
-        description: Repository the release is built from
-        required: false
-        type: string
-        default: paritytech/polkadot-sdk
 
 permissions:
   contents: read
@@ -78,7 +62,6 @@ jobs:
     outputs:
       sha: ${{ steps.verify.outputs.sha }}
       stable_branch: ${{ steps.verify.outputs.stable_branch }}
-      verified_branch: ${{ steps.verify.outputs.verified_branch }}
     steps:
       - name: Check the release killswitch
         env:
@@ -90,15 +73,28 @@ jobs:
             exit 1
           fi
 
-      # Checks out release-automation itself, NOT the release tag. The guard must
-      # never take its own verification logic from the tree it is verifying.
+      - name: Check the caller
+        env:
+          CALLER_REPO: ${{ github.repository }}
+        run: |
+          if [[ "$CALLER_REPO" != "paritytech/release-automation" ]]; then
+            echo "::error title=Unsupported caller::The release guard must be called from paritytech/release-automation, not ${CALLER_REPO}"
+            exit 1
+          fi
+
+      # Checks out release-automation itself, NOT the release tag, pinned to the
+      # commit this guard workflow was loaded from. The guard must never take its
+      # own verification logic from the tree it is verifying.
       - name: Checkout guard helpers
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: paritytech/release-automation
+          ref: ${{ github.job_workflow_sha || github.sha }}
+          persist-credentials: false
 
       - name: Verify the release ref
         id: verify
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
-          UPSTREAM_REPO: ${{ inputs.upstream_repo }}
         run: ./.github/scripts/guard/verify-release-ref.sh
