@@ -42,7 +42,7 @@ jobs:
         channel:
           - name: "RelEng: Polkadot Release Coordination"
             room: '!cqAmzdIcbOFwrdrubV:parity.io'
-    environment: release
+    environment: weekly
     env:
       PGP_KMS_KEY: ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
       PGP_KMS_HASH: ${{ secrets.PGP_KMS_HASH }}

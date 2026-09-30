@@ -71,12 +71,12 @@ jobs:
           fi
 
   build-rc:
-    if: ${{ inputs.target == 'x86_64-unknown-linux-gnu' }}
+    if: ${{ inputs.target == 'x86_64-unknown-linux-gnu' || inputs.target == 'aarch64-unknown-linux-gnu' }}
     needs: [setup]
     runs-on: ${{ needs.setup.outputs.RUNNER }}
     container:
       image: ${{ needs.setup.outputs.IMAGE }}
-    environment: release
+    environment: weekly
     strategy:
       # One binary failing must not cancel the rest of the matrix: a single flaky
       # runner would otherwise take out the whole build stage, which then skips the
@@ -105,12 +105,40 @@ jobs:
           ref: ${{ inputs.weekly_release_tag }}
           fetch-depth: 0
 
+      # The workspace root is polkadot-sdk, which ships its own copies of the
+      # release scripts under the same paths. Those have no cross-build support,
+      # so the build scripts must come from this repo.
+      - name: Checkout release automation scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: release-automation
+
       # - name: Import gpg keys
       #   shell: bash
       #   run: |
       #     . ./.github/scripts/common/lib.sh
 
       #     import_gpg_keys
+
+      - name: Install aarch64 cross toolchain
+        if: ${{ inputs.target == 'aarch64-unknown-linux-gnu' }}
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross qemu-user-static/bullseye
+          rustup target add aarch64-unknown-linux-gnu
+
+          # Target-scoped so build scripts and proc macros keep compiling for the host.
+          # The bindgen include path is for librocksdb-sys, which parses the C headers
+          # of the target sysroot.
+          {
+            echo "TARGET=aarch64-unknown-linux-gnu"
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc"
+            echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc"
+            echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++"
+            echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar"
+            echo "BINDGEN_EXTRA_CLANG_ARGS_aarch64_unknown_linux_gnu=-I/usr/aarch64-linux-gnu/include"
+          } >> $GITHUB_ENV
 
       - name: Build binary
         env:
@@ -119,7 +147,25 @@ jobs:
           FEATURES: ${{ inputs.features }}
         run: |
           git config --global --add safe.directory "${GITHUB_WORKSPACE}" #avoid "detected dubious ownership" error
-          ./.github/scripts/release/build-linux-release.sh "$BINARY_NAME" "$PACKAGE" "$FEATURES"
+          ./release-automation/.github/scripts/release/build-linux-release.sh "$BINARY_NAME" "$PACKAGE" "$FEATURES"
+
+      - name: Check architecture of ${{ matrix.binaries }}
+        env:
+          BINARY_PATH: /artifacts/${{ matrix.binaries }}/${{ matrix.binaries }}
+          TARGET_TRIPLE: ${{ inputs.target }}
+        shell: bash
+        run: |
+          # e_machine: the 16-bit little-endian field at offset 18 of the ELF header
+          case "$TARGET_TRIPLE" in
+            x86_64-unknown-linux-gnu) expected=62 ;;
+            aarch64-unknown-linux-gnu) expected=183 ;;
+          esac
+          machine=$(od -An -t u2 -j 18 -N 2 "$BINARY_PATH" | tr -d ' ')
+          if [[ "$machine" != "$expected" ]]; then
+            echo "::error::$BINARY_PATH has ELF machine $machine, expected $expected for $TARGET_TRIPLE"
+            exit 1
+          fi
+          echo "$BINARY_PATH is built for $TARGET_TRIPLE"
 
       # - name: Generate artifact attestation
       #   uses: actions/attest-build-provenance@db473fddc028af60658334401dc6fa3ffd8669fd # v2.3.0
@@ -135,7 +181,7 @@ jobs:
         working-directory: /artifacts/${{ matrix.binaries }}
         shell: bash
         run: |
-          .  "${GITHUB_WORKSPACE}"/.github/scripts/common/lib.sh
+          .  "${GITHUB_WORKSPACE}"/release-automation/.github/scripts/common/lib.sh
 
           echo "Checking binary  ${{ matrix.binaries }}"
           check_sha256  ${{ matrix.binaries }}
@@ -157,7 +203,7 @@ jobs:
   build-macos-rc:
     if: ${{ inputs.target == 'aarch64-apple-darwin' }}
     runs-on: parity-macos
-    environment: release
+    environment: weekly
     strategy:
       # One binary failing must not cancel the rest of the matrix: a single flaky
       # runner would otherwise take out the whole build stage, which then skips the

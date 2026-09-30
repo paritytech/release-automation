@@ -61,7 +61,7 @@ jobs:
   create-weekly-branch:
     needs: [ validate-inputs ]
     runs-on: parity-default
-    environment: release
+    environment: weekly
     env:
       PGP_KMS_KEY: ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
       PGP_KMS_HASH: ${{ secrets.PGP_KMS_HASH }}

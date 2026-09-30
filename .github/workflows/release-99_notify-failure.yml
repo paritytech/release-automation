@@ -59,7 +59,7 @@ jobs:
       HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
       ISSUE_LABEL: release-pipeline-failure
       ROOM_ID: '!GvAyzgCDgaVrvibaAF:parity.io'
-    environment: release
+    environment: weekly
 
     steps:
       - name: Collect run details
