@@ -1,0 +1,134 @@
+# Tags the next rc on the tip of a stable branch in paritytech/polkadot-sdk.
+#
+# The checkout is pinned to the stable branch derived from `version`
+name: Release - RC tagging automation (stable)
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Current release/rc version in format polkadot-stableYYMM or polkadot-stableYYMM-X
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: Current release/rc version in format polkadot-stableYYMM or polkadot-stableYYMM-X
+        required: true
+        type: string
+
+jobs:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.validate_inputs.outputs.version }}
+      stable_branch: ${{ steps.validate_inputs.outputs.stable_branch }}
+    steps:
+      # Validated inline: the stable branch to check out is derived from this
+      # input, so nothing can be checked out before it is known to be well formed.
+      - name: Validate inputs
+        id: validate_inputs
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$INPUT_VERSION" =~ ^polkadot-stable[0-9]{4}(-[0-9]+)?$ ]]; then
+            echo "::error::version '${INPUT_VERSION}' must be in the format polkadot-stableYYMM or polkadot-stableYYMM-X"
+            exit 1
+          fi
+
+          stable_branch=$(sed -E 's/^polkadot-(stable[0-9]{4}).*/\1/' <<< "$INPUT_VERSION")
+          echo "version=${INPUT_VERSION}" >> $GITHUB_OUTPUT
+          echo "stable_branch=${stable_branch}" >> $GITHUB_OUTPUT
+
+  tag_rc:
+    needs: [ validate-inputs ]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        channel:
+          - name: "RelEng: Polkadot Release Coordination"
+            room: '!cqAmzdIcbOFwrdrubV:parity.io'
+    environment: release
+    env:
+      PGP_KMS_KEY: ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
+      PGP_KMS_HASH: ${{ secrets.PGP_KMS_HASH }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+
+    steps:
+      - name: Install pgpkkms
+        run: |
+          # Install pgpkms that is used to sign commits
+          pip install git+https://github.com/paritytech-release/pgpkms.git@dc30e487d47f53d069831a4306377a3ec32638ae
+
+      - name: Generate content write token for the release automation
+        id: generate_write_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+            client-id: ${{ vars.RELEASE_AUTOMATION_CLIENT_ID }}
+            private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
+            owner: paritytech
+
+      - name: Checkout polkadot-sdk stable branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: paritytech/polkadot-sdk
+          ref: ${{ needs.validate-inputs.outputs.stable_branch }}
+          fetch-depth: 0
+          token: ${{ steps.generate_write_token.outputs.token }}
+
+      - name: Import gpg keys
+        run: |
+          . ./.github/scripts/common/lib.sh
+
+          import_gpg_keys
+
+      - name: Config git
+        run: |
+          git config --global commit.gpgsign true
+          git config --global gpg.program /home/runner/.local/bin/pgpkms-git
+          git config --global user.name "ParityReleases"
+          git config --global user.email "release-team@parity.io"
+          git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
+
+      - name: Compute next rc tag
+        id: compute_tag
+        shell: bash
+        env:
+          VERSION: ${{ needs.validate-inputs.outputs.version }}
+        run: |
+          . ./.github/scripts/common/lib.sh
+
+          # Get last rc tag if exists, else set it to {version}-rc1
+          version=$(validate_stable_tag "$VERSION")
+          echo "$version"
+          echo "version=$version" >> $GITHUB_OUTPUT
+
+          last_rc=$(get_latest_rc_tag $version polkadot)
+
+          if [ -n "$last_rc" ]; then
+            suffix=$(increment_rc_tag $last_rc)
+            echo "new_tag=$version-rc$suffix" >> $GITHUB_OUTPUT
+            echo "first_rc=false" >> $GITHUB_OUTPUT
+          else
+            echo "new_tag=$version-rc1" >> $GITHUB_OUTPUT
+            echo "first_rc=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Apply new tag
+        env:
+          GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
+          RC_TAG: ${{ steps.compute_tag.outputs.new_tag }}
+        run: |
+         git tag -s $RC_TAG -m "new rc tag $RC_TAG"
+         git push origin $RC_TAG
+
+      - name: Send Matrix message to ${{ matrix.channel.name }}
+        uses: s3krit/matrix-message-action@70ad3fb812ee0e45ff8999d6af11cafad11a6ecf # v0.0.3
+        # if: steps.create-issue.outputs.url != ''
+        with:
+          room_id: ${{ matrix.channel.room }}
+          access_token: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
+          server: m.parity.io
+          message: |
+            Release process for polkadot ${{ steps.compute_tag.outputs.new_tag }} has been started.<br/>

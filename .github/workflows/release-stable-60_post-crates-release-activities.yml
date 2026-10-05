@@ -1,0 +1,285 @@
+# Commits the post-crates-release changes (NODE_VERSION / spec_version bumps,
+# prdoc reorganisation) onto the `post-crates-release-<version>` branch that
+# release-80 pushed to paritytech/polkadot-sdk, and opens a PR from it to the
+# stable branch.
+name: Release - Post Crates Release Activities (stable)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Full release version identifier (e.g., stable2512 or stable2512-2)'
+        required: true
+        type: string
+      bump_node_version:
+        description: 'Bump NODE_VERSION? Select "yes" if this is the first run for this post-crates PR, "no" if re-running or if you have another reason not to bump'
+        required: true
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      bump_spec_version:
+        description: 'Bump spec_version? Select "yes" to bump spec version for all runtimes, "no" if re-running or if you have another reason not to bump'
+        required: true
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+
+# Everything is written to paritytech/polkadot-sdk with the app token.
+permissions:
+  contents: read
+
+jobs:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.validate_inputs.outputs.version }}
+      base_release: ${{ steps.validate_inputs.outputs.base_release }}
+      branch: ${{ steps.validate_inputs.outputs.branch }}
+    steps:
+      # Validated inline: the branch to check out is derived from this input.
+      - name: Validate inputs
+        id: validate_inputs
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$INPUT_VERSION" =~ ^stable[0-9]{4}(-[0-9]+)?$ ]]; then
+            echo "::error::version '${INPUT_VERSION}' must be in the format stableYYMM or stableYYMM-X"
+            exit 1
+          fi
+
+          # Base release branch: the version without its last -N segment
+          base_release=$(sed -E 's/^(stable[0-9]{4}).*/\1/' <<< "$INPUT_VERSION")
+
+          echo "version=${INPUT_VERSION}" >> $GITHUB_OUTPUT
+          echo "base_release=${base_release}" >> $GITHUB_OUTPUT
+          # Created and pushed by release-80
+          echo "branch=post-crates-release-${INPUT_VERSION}" >> $GITHUB_OUTPUT
+
+  set-image:
+    needs: [ validate-inputs ]
+    runs-on: ubuntu-latest
+    outputs:
+      IMAGE: ${{ steps.set_image.outputs.IMAGE }}
+    steps:
+      - name: Checkout polkadot-sdk sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: paritytech/polkadot-sdk
+          ref: ${{ needs.validate-inputs.outputs.branch }}
+
+      - id: set_image
+        run: cat .github/env >> $GITHUB_OUTPUT
+
+  post-crates-activities:
+    needs: [ validate-inputs, set-image ]
+    runs-on: ubuntu-latest
+    environment: release
+    env:
+      PGP_KMS_KEY: ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
+      PGP_KMS_HASH: ${{ secrets.PGP_KMS_HASH }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+    container:
+      image: ${{ needs.set-image.outputs.IMAGE }}
+
+    steps:
+      - name: Install pgpkms
+        run: |
+          # Install pgpkms that is used to sign commits
+          pip install git+https://github.com/paritytech-release/pgpkms.git@dc30e487d47f53d069831a4306377a3ec32638ae
+          # Find and display where pgpkms-git is installed
+          echo "pgpkms-git location: $(which pgpkms-git)"
+          ls -la $(which pgpkms-git)
+
+      - name: Generate content write token for the release automation
+        id: generate_write_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+            client-id: ${{ vars.RELEASE_AUTOMATION_CLIENT_ID }}
+            private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
+            owner: paritytech
+            repositories: polkadot-sdk
+
+      - name: Checkout polkadot-sdk post-crates branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: paritytech/polkadot-sdk
+          ref: ${{ needs.validate-inputs.outputs.branch }}
+          fetch-depth: 0
+          token: ${{ steps.generate_write_token.outputs.token }}
+
+      - name: Import GPG keys
+        shell: bash
+        run: |
+          . ./.github/scripts/common/lib.sh
+          import_gpg_keys
+
+      - name: Configure git
+        shell: bash
+        run: |
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          git config --global commit.gpgsign true
+          # Dynamically find pgpkms-git path
+          PGPKMS_PATH=$(which pgpkms-git)
+          echo "Using pgpkms-git at: $PGPKMS_PATH"
+          git config --global gpg.program "$PGPKMS_PATH"
+          git config --global user.name "ParityReleases"
+          git config --global user.email "release-team@parity.io"
+          git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
+
+      - name: Bump NODE_VERSION for polkadot
+        if: inputs.bump_node_version == 'yes'
+        run: |
+          echo "Bumping NODE_VERSION in polkadot..."
+          FILE="polkadot/node/primitives/src/lib.rs"
+
+          # Extract current NODE_VERSION
+          current_version=$(grep 'pub const NODE_VERSION' "$FILE" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
+          echo "Current version: $current_version"
+
+          # Bump patch version
+          new_version=$(echo "$current_version" | awk -F. '{print $1"."$2"."$3+1}')
+          echo "New version: $new_version"
+
+          # Update the file
+          sed -i.bak "s/NODE_VERSION: &'static str = \"$current_version\"/NODE_VERSION: \&'static str = \"$new_version\"/" "$FILE"
+          rm -f "$FILE.bak"
+
+          echo "Successfully bumped NODE_VERSION from $current_version to $new_version"
+
+      - name: Bump NODE_VERSION for polkadot-parachain and polkadot-omni-node
+        if: inputs.bump_node_version == 'yes'
+        run: |
+          echo "Bumping NODE_VERSION in cumulus..."
+          FILE="cumulus/polkadot-omni-node/lib/src/nodes/mod.rs"
+
+          # Extract current NODE_VERSION
+          current_version=$(grep 'pub const NODE_VERSION' "$FILE" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
+          echo "Current version: $current_version"
+
+          # Bump patch version
+          new_version=$(echo "$current_version" | awk -F. '{print $1"."$2"."$3+1}')
+          echo "New version: $new_version"
+
+          # Update the file
+          sed -i.bak "s/NODE_VERSION: &'static str = \"$current_version\"/NODE_VERSION: \&'static str = \"$new_version\"/" "$FILE"
+          rm -f "$FILE.bak"
+
+          echo "Successfully bumped NODE_VERSION from $current_version to $new_version"
+
+      - name: Commit NODE_VERSION bumps
+        if: inputs.bump_node_version == 'yes'
+        shell: bash
+        run: |
+          . ./.github/scripts/release/release_lib.sh
+
+          # Extract the bumped NODE_VERSION
+          FILE="polkadot/node/primitives/src/lib.rs"
+          NODE_VERSION=$(grep 'pub const NODE_VERSION' "$FILE" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
+
+          echo "Committing NODE_VERSION bump to $NODE_VERSION"
+          commit_with_message "Bump NODE_VERSION to $NODE_VERSION"
+          echo "✅ Successfully committed NODE_VERSION bump"
+
+      - name: Bump spec_version
+        if: inputs.bump_spec_version == 'yes'
+        shell: bash
+        run: |
+          . ./.github/scripts/release/release_lib.sh
+
+          FILE="polkadot/node/primitives/src/lib.rs"
+          NODE_VERSION=$(grep 'pub const NODE_VERSION' "$FILE" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
+
+          # Determine if this is a patch release or new stable release
+          patch=$(echo "$NODE_VERSION" | awk -F'[.-]' '{print $3}')
+          if [ "$patch" -gt 0 ]; then
+            IS_PATCH_RELEASE="true"
+            printf "📋 Patch release detected (patch=$patch) - bumping spec_version patch part\n"
+          else
+            IS_PATCH_RELEASE="false"
+            printf "📋 New stable release detected - bumping spec_version minor part\n"
+          fi
+
+          runtimes_list=$(get_filtered_runtimes_list)
+
+          for f in ${runtimes_list[@]}; do
+              new_version=$(bump_spec_version "$f" "$IS_PATCH_RELEASE")
+              printf " 🔄  $f → spec_version: $new_version\n"
+          done
+
+          commit_with_message "Bump spec_version for $([ \"$IS_PATCH_RELEASE\" = \"true\" ] && echo \"patch\" || echo \"stable\") release"
+
+      - name: Move prdocs to release folder
+        shell: bash
+        env:
+          VERSION: ${{ needs.validate-inputs.outputs.version }}
+        run: |
+          . ./.github/scripts/release/release_lib.sh
+
+          echo "Version: $VERSION"
+
+          reorder_prdocs "$VERSION"
+
+      - name: Push changes
+        shell: bash
+        run: |
+          echo "Pushing changes to branch..."
+          git push
+          echo "Changes pushed successfully"
+
+      - name: Create Pull Request to base release branch
+        env:
+          GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
+          BRANCH_NAME: ${{ needs.validate-inputs.outputs.branch }}
+          FULL_RELEASE: ${{ needs.validate-inputs.outputs.version }}
+          BASE_RELEASE: ${{ needs.validate-inputs.outputs.base_release }}
+        shell: bash
+        run: |
+          echo "Current branch: $BRANCH_NAME"
+          echo "Version: $FULL_RELEASE"
+
+          TARGET_REPO="paritytech/polkadot-sdk"
+
+          # Check if PR already exists
+          EXISTING_PR=$(gh pr list --repo "$TARGET_REPO" --head "$BRANCH_NAME" --base "$BASE_RELEASE" --json number --jq '.[0].number')
+
+          if [ -n "$EXISTING_PR" ]; then
+            echo "✅ PR #$EXISTING_PR already exists for this branch"
+            echo "PR URL: $(gh pr view $EXISTING_PR --repo "$TARGET_REPO" --json url --jq '.url')"
+          else
+            echo "Creating PR from $BRANCH_NAME to $BASE_RELEASE in $TARGET_REPO..."
+            gh pr create \
+              --repo "$TARGET_REPO" \
+              --title "[${BASE_RELEASE}] Post crates release activities for $FULL_RELEASE" \
+              --body "Automated PR containing post-crates-release activities:
+          - NODE_VERSION bumps (if selected)
+          - Path dependencies replacement
+          - Zepter fixes
+          - Taplo formatting
+          - PRDocs reorganization (if prdocs exist)" \
+              --base "$BASE_RELEASE" \
+              --head "$BRANCH_NAME"
+            echo "PR created successfully"
+          fi
+
+      - name: Add comment about spec_version
+        env:
+          # Same app token as the PR: github.token has no access to polkadot-sdk.
+          GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
+          BRANCH_NAME: ${{ needs.validate-inputs.outputs.branch }}
+        shell: bash
+        run: |
+          TARGET_REPO="paritytech/polkadot-sdk"
+
+          # Find the PR number for this branch
+          PR_NUMBER=$(gh pr list --repo "$TARGET_REPO" --head "$BRANCH_NAME" --json number --jq '.[0].number')
+
+          if [ -n "$PR_NUMBER" ]; then
+            echo "Adding comment to PR #$PR_NUMBER..."
+            gh pr comment "$PR_NUMBER" --repo "$TARGET_REPO" --body "⚠️ **Reminder:** If spec_version was not bumped automatically as part of this flow. Please ensure it is updated manually if required."
+          else
+            echo "⚠️ WARNING: Could not find PR for branch $BRANCH_NAME"
+          fi

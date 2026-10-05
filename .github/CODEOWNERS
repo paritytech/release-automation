@@ -1,0 +1,24 @@
+# Code owners for release-automation.
+#
+# Enforced by the `main` ruleset, which has require_code_owner_review enabled:
+# every PR needs an approving review from an owner of each path it touches.
+#
+# Notes on syntax, matching the conventions in paritytech/polkadot-sdk:
+#
+#   - The latest matching rule wins, so the specific paths below override `*`.
+#   - Multiple owners on one path are OR, not AND: any one of them satisfies the
+#     review requirement.
+#   - An owner needs write access or better. A team with read access is silently
+#     ignored, with no error. @paritytech/engineering has read access to this
+#     repo and must not be listed here.
+
+# Shared ownership of the repo: either Release Engineering or CI can review.
+# This also covers CODEOWNERS itself, so the gate cannot be quietly removed.
+*                        @paritytech/release-engineering @paritytech/ci
+
+# The guard decides whether a ref may be built at all, and its logic is
+# deliberately NOT sourced from the repository it verifies: a crafted tag could
+# otherwise supply a validator that returns success. Kept with Release
+# Engineering alone so changes to the gate are reviewed by its owners.
+# See paritytech/release-engineering#310 and #314.
+/.github/scripts/guard/  @paritytech/release-engineering

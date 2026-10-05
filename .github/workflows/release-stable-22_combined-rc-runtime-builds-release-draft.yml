@@ -1,0 +1,115 @@
+name: Release - Combined Builds Flow (stable)
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain:
+        description: The chain to use for runtime builds
+        default: all
+        required: true
+        type: choice
+        options:
+          - all
+          - westend
+          - asset-hub-westend
+          - bridge-hub-westend
+          - collectives-westend
+          - coretime-westend
+          - glutton-westend
+          - people-westend
+      runtime_dir:
+        description: The runtime dir to be used (⚠️ this parameter is optional and needed only in case of the single runtime build, set it accordingly to the runtime you want to build)
+        default: polkadot/runtime/westend
+        type: choice
+        options:
+          - polkadot/runtime/westend
+          - cumulus/parachains/runtimes/assets/asset-hub-westend
+          - cumulus/parachains/runtimes/bridge-hubs/bridge-hub-westend
+          - cumulus/parachains/runtimes/collectives/collectives-westend
+          - cumulus/parachains/runtimes/coretime/coretime-westend
+          - cumulus/parachains/runtimes/people/people-westend
+          - cumulus/parachains/runtimes/glutton/glutton-westend
+      binary:
+        description: Binary to be built for the release candidate
+        default: all
+        type: choice
+        options:
+          - polkadot
+          - polkadot-parachain
+          - polkadot-omni-node
+          - frame-omni-bencher
+          - chain-spec-builder
+          - substrate-node
+          - eth-rpc
+          - subkey
+          - all
+      release_tag:
+        description: Tag matching the actual release candidate with the format polkadot-stableYYMM(-X)-rcY or polkadot-stableYYMM(-X)
+        type: string
+        required: true
+      no_runtimes:
+        description: If true, no runtime build will be triggered and release draft will be published without runtimes (⚠️ use it for the patch releases of the latest stable)
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  # Fails fast on a bad tag before any build starts. Each called workflow runs
+  # the guard again for itself, since each can also be dispatched on its own.
+  guard:
+    uses: ./.github/workflows/release-guard.yml
+    with:
+      release_tag: ${{ inputs.release_tag }}
+
+  build-runtimes-flow:
+    if: ${{ inputs.no_runtimes == false }}
+    needs: [guard]
+    uses: "./.github/workflows/release-stable-21_build-runtimes.yml"
+    with:
+      chain: ${{ inputs.chain }}
+      runtime_dir: ${{ inputs.runtime_dir }}
+      release_tag: ${{ inputs.release_tag }}
+
+    secrets: inherit
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+  build-rc-flow:
+    needs: [guard]
+    uses: "./.github/workflows/release-stable-20_build-rc.yml"
+    with:
+      binary: ${{ inputs.binary }}
+      release_tag: ${{ inputs.release_tag }}
+
+    secrets: inherit
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+  trigger-release-draft-with-runtimes:
+    if: ${{ inputs.no_runtimes == false }}
+    needs: [build-runtimes-flow, build-rc-flow, guard]
+    uses: "./.github/workflows/release-stable-30_publish_release_draft.yml"
+    with:
+      release_tag: ${{ inputs.release_tag }}
+      build_run_id: ${{ github.run_id }}
+      runtimes: '${{ needs.build-runtimes-flow.outputs.published_runtimes }}'
+      no_runtimes: ${{ inputs.no_runtimes }}
+      crates_only: false
+
+    secrets: inherit
+
+  trigger-release-draft-without-runtimes:
+    if: ${{ inputs.no_runtimes == true }}
+    needs: [build-rc-flow, guard]
+    uses: "./.github/workflows/release-stable-30_publish_release_draft.yml"
+    with:
+      release_tag: ${{ inputs.release_tag }}
+      build_run_id: ${{ github.run_id }}
+      no_runtimes: ${{ inputs.no_runtimes }}
+      crates_only: false
+
+    secrets: inherit
