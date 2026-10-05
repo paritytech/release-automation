@@ -1,0 +1,77 @@
+name: Release - Build runtimes (stable)
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain:
+        description: The chain to use
+        default: all
+        required: true
+        type: choice
+        options:
+          - all
+          - westend
+          - asset-hub-westend
+          - bridge-hub-westend
+          - collectives-westend
+          - coretime-westend
+          - glutton-westend
+          - people-westend
+      runtime_dir:
+        description: The runtime dir to be used (⚠️ this parameter is optional and needed only in case of the single runtime build, set it accordingly to the runtime you want to build)
+        default: polkadot/runtime/westend
+        type: choice
+        options:
+          - polkadot/runtime/westend
+          - cumulus/parachains/runtimes/assets/asset-hub-westend
+          - cumulus/parachains/runtimes/bridge-hubs/bridge-hub-westend
+          - cumulus/parachains/runtimes/collectives/collectives-westend
+          - cumulus/parachains/runtimes/coretime/coretime-westend
+          - cumulus/parachains/runtimes/people/people-westend
+          - cumulus/parachains/runtimes/glutton/glutton-westend
+
+      release_tag:
+        description: Tag matching the actual release candidate with the format polkadot-stableYYMM(-X)-rcY or polkadot-stableYYMM(-X)
+        required: true
+        type: string
+
+  workflow_call:
+    inputs:
+      chain:
+        description: The chain to use
+        default: all
+        required: true
+        type: string
+      runtime_dir:
+        description: The runtime dir to be used (⚠️ this parameter is optional and needed only in case of the single runtime build, set it accordingly to the runtime you want to build)
+        default: polkadot/runtime/westend
+        type: string
+      release_tag:
+        description: Tag matching the actual release candidate with the format polkadot-stableYYMM(-X)-rcY or polkadot-stableYYMM(-X)
+        required: true
+        type: string
+    outputs:
+      published_runtimes:
+        value: ${{ jobs.build-runtimes.outputs.published_runtimes }}
+
+jobs:
+  # Verifies the tag and pins it to a commit. srtool builds from the guard's SHA.
+  guard:
+    uses: ./.github/workflows/release-guard.yml
+    with:
+      release_tag: ${{ inputs.release_tag }}
+
+  build-runtimes:
+    needs: [guard]
+    uses: "./.github/workflows/release-stable-srtool.yml"
+    with:
+       excluded_runtimes: "rococo asset-hub-rococo bridge-hub-rococo rococo substrate-test bp cumulus-test kitchensink minimal-template parachain-template penpal polkadot-test seedling shell frame-try sp solochain-template polkadot-sdk-docs-first pallet-staking-async-parachain pallet-staking-async-rc frame-storage-access-test yet-another-parachain revive-dev"
+       build_opts: "--features on-chain-release-build"
+       profile: production
+       chain: ${{ inputs.chain }}
+       runtime_dir: ${{ inputs.runtime_dir }}
+       sha: ${{ needs.guard.outputs.sha }}
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read

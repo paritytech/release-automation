@@ -1,0 +1,104 @@
+name: Release - Create polkadot-vX.YY.Z tag (stable)
+# This workflow creates a final release tag in the old format (e.g. polkadot-v1.20.0) for a published release.
+#
+# Releases are published in paritytech/polkadot-sdk, so the `release: published`
+# event never fires here. Instead the event is relayed from polkadot-sdk by
+# dispatching this workflow with the release tag (paritytech/release-engineering#317).
+# The relay forwards every published release, rc pre-releases included, so only
+# final tags are accepted: an rc would take the polkadot-vX.YY.Z name before the
+# final release, which has the same node version, could get it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published final release tag in the format polkadot-stableYYMM or polkadot-stableYYMM-X
+        required: true
+        type: string
+
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Published final release tag in the format polkadot-stableYYMM or polkadot-stableYYMM-X
+        required: true
+        type: string
+
+jobs:
+  # Verifies the tag and pins it to a commit; the old tag is created on that SHA.
+  guard:
+    uses: ./.github/workflows/release-guard.yml
+    with:
+      release_tag: ${{ inputs.release_tag }}
+
+  create-old-release-tag:
+    needs: [ guard ]
+    runs-on: ubuntu-latest
+    environment: release
+    env:
+      PGP_KMS_KEY: ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
+      PGP_KMS_HASH: ${{ secrets.PGP_KMS_HASH }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+
+    steps:
+      - name: Accept final release tags only
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if [[ "$RELEASE_TAG" =~ -rc[0-9]+$ ]]; then
+            echo "::error::'${RELEASE_TAG}' is an rc tag; old-format tags are only created for final releases"
+            exit 1
+          fi
+
+      - name: Assert the guard ran
+        shell: bash
+        env:
+          GUARD_SHA: ${{ needs.guard.outputs.sha }}
+        run: '[[ "$GUARD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No verified SHA from the release guard"; exit 1; }'
+
+      - name: Install pgpkkms
+        run: |
+          # Install pgpkms that is used to sign commits
+          pip install git+https://github.com/paritytech-release/pgpkms.git@dc30e487d47f53d069831a4306377a3ec32638ae
+
+      - name: Generate content write token for the release automation
+        id: generate_write_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+            client-id: ${{ vars.RELEASE_AUTOMATION_CLIENT_ID }}
+            private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
+            owner: paritytech
+
+      - name: Checkout polkadot-sdk sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: paritytech/polkadot-sdk
+          ref: ${{ needs.guard.outputs.sha }}
+          token: ${{ steps.generate_write_token.outputs.token }}
+
+      - name: Import gpg keys
+        run: |
+          . ./.github/scripts/common/lib.sh
+
+          import_gpg_keys
+
+      - name: Config git
+        run: |
+          git config --global commit.gpgsign true
+          git config --global gpg.program /home/runner/.local/bin/pgpkms-git
+          git config --global user.name "ParityReleases"
+          git config --global user.email "release-team@parity.io"
+          git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
+
+      - name: Create old release tag
+        env:
+          GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
+        run: |
+          . ./.github/scripts/common/lib.sh
+
+          version=$(get_polkadot_node_version_from_code)
+          echo "Extracted node version: $version"
+
+          git tag -s "polkadot-v${version}" -m "Old release tag polkadot-v${version}"
+          git push origin "polkadot-v${version}"

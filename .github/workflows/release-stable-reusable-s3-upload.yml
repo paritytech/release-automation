@@ -1,0 +1,71 @@
+# Uploads a build artifact of this run to the release S3 bucket, using the
+# upload helpers from paritytech/polkadot-sdk checked out at the SHA verified by
+# release-guard.
+name: Upload to s3 (stable)
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        description: Package to be built, for now is either polkadot or polkadot-parachain-bin
+        required: true
+        type: string
+
+      release_tag:
+        description: Tag matching the actual release candidate with the format polkadot-stableYYMM(-X)-rcX or polkadot-stableYYMM-rcX
+        required: true
+        type: string
+
+      sha:
+        description: Commit SHA verified by release-guard. The checkout uses it instead of the tag
+        required: true
+        type: string
+
+      target:
+        description: Target triple for which the artifacts are being uploaded (e.g aarch64-apple-darwin)
+        required: true
+        type: string
+
+jobs:
+  upload-artifacts-to-s3:
+      runs-on: ubuntu-latest
+      environment: release
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_RELEASE_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_RELEASE_SECRET_ACCESS_KEY }}
+        AWS_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+
+      steps:
+        - name: Assert the guard ran
+          shell: bash
+          env:
+            GUARD_SHA: ${{ inputs.sha }}
+          run: '[[ "$GUARD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No verified SHA from the release guard"; exit 1; }'
+
+        - name: Checkout polkadot-sdk sources
+          uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+          with:
+            repository: paritytech/polkadot-sdk
+            ref: ${{ inputs.sha }}
+
+        - name: Download amd64 artifacts
+          uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+          with:
+            name: ${{ inputs.package }}_${{ inputs.target }}
+            path: release-artifacts/${{ inputs.target }}/${{ inputs.package }}
+
+        - name: Configure AWS Credentials
+          uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+          with:
+            aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+            aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+            aws-region: ${{ env.AWS_REGION }}
+
+        - name: Upload ${{ inputs.package }} artifacts to s3
+          env:
+            PACKAGE: ${{ inputs.package }}
+            RELEASE_TAG: ${{ inputs.release_tag }}
+            TARGET: ${{ inputs.target }}
+          run: |
+            . ./.github/scripts/release/release_lib.sh
+            upload_s3_release "$PACKAGE" "$RELEASE_TAG" "$TARGET"

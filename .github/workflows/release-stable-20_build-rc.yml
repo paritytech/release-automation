@@ -1,0 +1,302 @@
+name: Release - Build node release candidate (stable)
+
+on:
+  workflow_dispatch:
+    inputs:
+      binary:
+        description: Binary to be build for the release
+        default: all
+        type: choice
+        options:
+          - polkadot
+          - polkadot-parachain
+          - polkadot-omni-node
+          - frame-omni-bencher
+          - chain-spec-builder
+          - substrate-node
+          - eth-rpc
+          - subkey
+          - all
+
+      release_tag:
+        description: Tag matching the actual release candidate with the format polkadot-stableYYMM(-X)-rcX or polkadot-stableYYMM(-X)
+        required: true
+        type: string
+
+  workflow_call:
+    inputs:
+      binary:
+        description: Binary to be built for the release
+        default: all
+        type: string
+      release_tag:
+        description: Tag matching the actual release candidate with the format polkadot-stableYYMM(-X)-rcY or polkadot-stableYYMM(-X)
+        required: true
+        type: string
+
+jobs:
+  # Verifies the tag and pins it to a commit. Every build checks out the guard's
+  # SHA, never the tag name, and asserts it got one before building.
+  guard:
+    uses: ./.github/workflows/release-guard.yml
+    with:
+      release_tag: ${{ inputs.release_tag }}
+
+  build-polkadot-binary:
+    needs: [guard]
+    if: ${{ inputs.binary == 'polkadot' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-stable-reusable-rc-build.yml"
+    with:
+      binary: '["polkadot", "polkadot-prepare-worker", "polkadot-execute-worker"]'
+      package: polkadot
+      release_tag: ${{ inputs.release_tag }}
+      sha: ${{ needs.guard.outputs.sha }}
+      target: x86_64-unknown-linux-gnu
+    secrets: inherit
+
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+  build-polkadot-parachain-binary:
+    needs: [guard]
+    if: ${{ inputs.binary == 'polkadot-parachain' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-stable-reusable-rc-build.yml"
+    with:
+      binary: '["polkadot-parachain"]'
+      package: "polkadot-parachain-bin"
+      release_tag: ${{ inputs.release_tag }}
+      sha: ${{ needs.guard.outputs.sha }}
+      target: x86_64-unknown-linux-gnu
+    secrets: inherit
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+  build-polkadot-omni-node-binary:
+    needs: [guard]
+    if: ${{ inputs.binary == 'polkadot-omni-node' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-stable-reusable-rc-build.yml"
+    with:
+      binary: '["polkadot-omni-node"]'
+      package: "polkadot-omni-node"
+      release_tag: ${{ inputs.release_tag }}
+      sha: ${{ needs.guard.outputs.sha }}
+      target: x86_64-unknown-linux-gnu
+      features: runtime-benchmarks
+    secrets: inherit
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+  build-frame-omni-bencher-binary:
+    needs: [guard]
+    if: ${{ inputs.binary == 'frame-omni-bencher' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-stable-reusable-rc-build.yml"
+    with:
+      binary: '["frame-omni-bencher"]'
+      package: "frame-omni-bencher"
+      release_tag: ${{ inputs.release_tag }}
+      sha: ${{ needs.guard.outputs.sha }}
+      target: x86_64-unknown-linux-gnu
+    secrets: inherit
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+  build-chain-spec-builder-binary:
+    needs: [guard]
+    if: ${{ inputs.binary == 'chain-spec-builder' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-stable-reusable-rc-build.yml"
+    with:
+      binary: '["chain-spec-builder"]'
+      package: staging-chain-spec-builder
+      release_tag: ${{ inputs.release_tag }}
+      sha: ${{ needs.guard.outputs.sha }}
+      target: x86_64-unknown-linux-gnu
+    secrets: inherit
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+  build-substrate-node-binary:
+    needs: [guard]
+    if: ${{ inputs.binary == 'substrate-node' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-stable-reusable-rc-build.yml"
+    with:
+      binary: '["substrate-node"]'
+      package: staging-node-cli
+      release_tag: ${{ inputs.release_tag }}
+      sha: ${{ needs.guard.outputs.sha }}
+      target: x86_64-unknown-linux-gnu
+    secrets: inherit
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+  build-eth-rpc-binary:
+    needs: [guard]
+    if: ${{ inputs.binary == 'eth-rpc' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-stable-reusable-rc-build.yml"
+    with:
+      binary: '["eth-rpc"]'
+      package: pallet-revive-eth-rpc
+      release_tag: ${{ inputs.release_tag }}
+      sha: ${{ needs.guard.outputs.sha }}
+      target: x86_64-unknown-linux-gnu
+    secrets: inherit
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+  build-subkey-binary:
+    needs: [guard]
+    if: ${{ inputs.binary == 'subkey' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-stable-reusable-rc-build.yml"
+    with:
+      binary: '["subkey"]'
+      package: subkey
+      release_tag: ${{ inputs.release_tag }}
+      sha: ${{ needs.guard.outputs.sha }}
+      target: x86_64-unknown-linux-gnu
+    secrets: inherit
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+  build-polkadot-macos-binary:
+    needs: [guard]
+    if: ${{ inputs.binary == 'polkadot' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-stable-reusable-rc-build.yml"
+    with:
+      binary: '["polkadot", "polkadot-prepare-worker", "polkadot-execute-worker"]'
+      package: polkadot
+      release_tag: ${{ inputs.release_tag }}
+      sha: ${{ needs.guard.outputs.sha }}
+      target: aarch64-apple-darwin
+    secrets: inherit
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+  build-polkadot-parachain-macos-binary:
+    needs: [guard]
+    if: ${{ inputs.binary == 'polkadot-parachain' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-stable-reusable-rc-build.yml"
+    with:
+      binary: '["polkadot-parachain"]'
+      package: polkadot-parachain-bin
+      release_tag: ${{ inputs.release_tag }}
+      sha: ${{ needs.guard.outputs.sha }}
+      target: aarch64-apple-darwin
+    secrets: inherit
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+  build-polkadot-omni-node-macos-binary:
+    needs: [guard]
+    if: ${{ inputs.binary == 'polkadot-omni-node' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-stable-reusable-rc-build.yml"
+    with:
+      binary: '["polkadot-omni-node"]'
+      package: polkadot-omni-node
+      release_tag: ${{ inputs.release_tag }}
+      sha: ${{ needs.guard.outputs.sha }}
+      target: aarch64-apple-darwin
+      features: runtime-benchmarks
+    secrets: inherit
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+  build-frame-omni-bencher-macos-binary:
+    needs: [guard]
+    if: ${{ inputs.binary == 'frame-omni-bencher' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-stable-reusable-rc-build.yml"
+    with:
+      binary: '["frame-omni-bencher"]'
+      package: frame-omni-bencher
+      release_tag: ${{ inputs.release_tag }}
+      sha: ${{ needs.guard.outputs.sha }}
+      target: aarch64-apple-darwin
+    secrets: inherit
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+  build-chain-spec-builder-macos-binary:
+    needs: [guard]
+    if: ${{ inputs.binary == 'chain-spec-builder' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-stable-reusable-rc-build.yml"
+    with:
+      binary: '["chain-spec-builder"]'
+      package: staging-chain-spec-builder
+      release_tag: ${{ inputs.release_tag }}
+      sha: ${{ needs.guard.outputs.sha }}
+      target: aarch64-apple-darwin
+    secrets: inherit
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+  build-substrate-node-macos-binary:
+    needs: [guard]
+    if: ${{ inputs.binary == 'substrate-node' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-stable-reusable-rc-build.yml"
+    with:
+      binary: '["substrate-node"]'
+      package: staging-node-cli
+      release_tag: ${{ inputs.release_tag }}
+      sha: ${{ needs.guard.outputs.sha }}
+      target: aarch64-apple-darwin
+    secrets: inherit
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+  build-eth-rpc-macos-binary:
+    needs: [guard]
+    if: ${{ inputs.binary == 'eth-rpc' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-stable-reusable-rc-build.yml"
+    with:
+      binary: '["eth-rpc"]'
+      package: pallet-revive-eth-rpc
+      release_tag: ${{ inputs.release_tag }}
+      sha: ${{ needs.guard.outputs.sha }}
+      target: aarch64-apple-darwin
+    secrets: inherit
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+  build-subkey-macos-binary:
+    needs: [guard]
+    if: ${{ inputs.binary == 'subkey' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-stable-reusable-rc-build.yml"
+    with:
+      binary: '["subkey"]'
+      package: subkey
+      release_tag: ${{ inputs.release_tag }}
+      sha: ${{ needs.guard.outputs.sha }}
+      target: aarch64-apple-darwin
+    secrets: inherit
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read

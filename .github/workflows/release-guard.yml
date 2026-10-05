@@ -82,14 +82,17 @@ jobs:
             exit 1
           fi
 
-      # Checks out release-automation itself, NOT the release tag, pinned to the
-      # commit this guard workflow was loaded from. The guard must never take its
-      # own verification logic from the tree it is verifying.
+      # Checks out release-automation itself, NOT the release tag. The guard must
+      # never take its own verification logic from the tree it is verifying.
+      #
+      # github.sha is the caller's commit. The caller check above ensures that is
+      # a release-automation commit, and a local `uses: ./` call loads this guard
+      # from that same commit, so the helpers match the guard workflow exactly.
       - name: Checkout guard helpers
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: paritytech/release-automation
-          ref: ${{ github.job_workflow_sha || github.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Verify the release ref
