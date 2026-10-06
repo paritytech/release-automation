@@ -190,14 +190,6 @@ jobs:
           ref: ${{ needs.validate-inputs.outputs.weekly_release_tag }}
           fetch-depth: 0
 
-      - name: Generate content write token for the release automation
-        id: generate_write_token
-        uses: actions/create-github-app-token@v2
-        with:
-            app-id: ${{ vars.RELEASE_AUTOMATION_APP_ID }}
-            private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
-            owner: paritytech
-
       - name: Fetch weekly rc commit and tag
         # if: ${{ env.IMAGE_TYPE == 'rc' }}
         id: fetch_rc_refs
@@ -302,7 +294,7 @@ jobs:
 
       - name: Download artifacts
         env:
-          GITHUB_TOKEN: ${{ steps.generate_write_token.outputs.token }}
+          GITHUB_TOKEN: ${{ github.token }}
           RUN_ID: ${{ inputs.build_run_id }}
           BINARY: ${{ matrix.binary }}
           DEST: ${{ github.workspace }}/release-artifacts
