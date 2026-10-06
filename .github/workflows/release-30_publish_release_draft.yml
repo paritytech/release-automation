@@ -59,7 +59,7 @@ jobs:
         env:
           WEEKLY_RELEASE_TAG: ${{ inputs.weekly_release_tag }}
         run: |
-          . ./.github/scripts/common/lib.sh
+          . ./.github/scripts/pipeline-lib.sh
 
           RELEASE_TAG=$(validate_weekly_release_tag $WEEKLY_RELEASE_TAG)
           echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
@@ -330,8 +330,12 @@ jobs:
       matrix: ${{ fromJSON(needs.collect-artifacts.outputs.binaries) }}
 
     steps:
-      - name: Checkout sources
+      - name: Checkout polkadot-sdk scripts
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: paritytech/polkadot-sdk
+          ref: ${{ needs.validate-inputs.outputs.release_tag }}
+          path: polkadot-sdk
 
       # - name: Fetch binaries from s3 based on version
       #   run: |
@@ -356,7 +360,7 @@ jobs:
           BINARY: ${{ matrix.binary }}
         working-directory: ${{ github.workspace}}/release-artifacts/${{ matrix.target }}/${{ matrix.binary }}
         run: |
-          . ../../../.github/scripts/common/lib.sh
+          . "${GITHUB_WORKSPACE}"/polkadot-sdk/.github/scripts/common/lib.sh
 
           # The checksum written at build time is what proves the download is intact.
           # A mismatch fails the job rather than shipping the file.

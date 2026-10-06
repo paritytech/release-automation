@@ -105,14 +105,6 @@ jobs:
           ref: ${{ inputs.weekly_release_tag }}
           fetch-depth: 0
 
-      # The workspace root is polkadot-sdk, which ships its own copies of the
-      # release scripts under the same paths. Those have no cross-build support,
-      # so the build scripts must come from this repo.
-      - name: Checkout release automation scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          path: release-automation
-
       # - name: Import gpg keys
       #   shell: bash
       #   run: |
@@ -147,7 +139,7 @@ jobs:
           FEATURES: ${{ inputs.features }}
         run: |
           git config --global --add safe.directory "${GITHUB_WORKSPACE}" #avoid "detected dubious ownership" error
-          ./release-automation/.github/scripts/release/build-linux-release.sh "$BINARY_NAME" "$PACKAGE" "$FEATURES"
+          ./.github/scripts/release/build-linux-release.sh "$BINARY_NAME" "$PACKAGE" "$FEATURES"
 
       - name: Check architecture of ${{ matrix.binaries }}
         env:
@@ -181,7 +173,7 @@ jobs:
         working-directory: /artifacts/${{ matrix.binaries }}
         shell: bash
         run: |
-          .  "${GITHUB_WORKSPACE}"/release-automation/.github/scripts/common/lib.sh
+          .  "${GITHUB_WORKSPACE}"/.github/scripts/common/lib.sh
 
           echo "Checking binary  ${{ matrix.binaries }}"
           check_sha256  ${{ matrix.binaries }}
