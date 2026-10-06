@@ -196,8 +196,6 @@ jobs:
       runtime_dir: ${{ needs.calculate-weekly-version.outputs.runtime_dir }}
       weekly_release_tag: ${{ needs.tag-weekly-rc.outputs.rc_tag }}
     permissions:
-      id-token: write
-      attestations: write
       contents: read
 
   build-weekly-rc-docker-images:

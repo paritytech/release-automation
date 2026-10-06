@@ -83,8 +83,6 @@ jobs:
        runtime_dir: ${{ inputs.runtime_dir }}
        weekly_release_tag: ${{ needs.validate-inputs.outputs.weekly_release_tag }}
     permissions:
-      id-token: write
-      attestations: write
       contents: read
 
   # trigger-release-draft:

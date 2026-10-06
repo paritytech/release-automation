@@ -72,8 +72,6 @@ jobs:
 
     secrets: inherit
     permissions:
-      id-token: write
-      attestations: write
       contents: read
 
   build-rc-flow:

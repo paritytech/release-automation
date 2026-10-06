@@ -1,5 +1,6 @@
 # Deterministic runtime builds of paritytech/polkadot-sdk, checked out at the
 # SHA verified by release-guard. Callers must pass the guard's `sha` output.
+
 name: Srtool build (stable)
 
 env:
@@ -28,8 +29,6 @@ on:
         value: ${{ jobs.find-runtimes.outputs.runtime }}
 
 permissions:
-    id-token: write
-    attestations: write
     contents: read
 
 jobs:
@@ -131,11 +130,6 @@ jobs:
           cat "${CHAIN}-srtool-digest.json"
           echo "Compact Runtime: $WASM_PATH"
           echo "Compressed Runtime: $WASM_COMPRESSED_PATH"
-
-      - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path:  ${{ steps.srtool_build.outputs.wasm }}
 
       # We now get extra information thanks to subwasm
       - name: Install subwasm

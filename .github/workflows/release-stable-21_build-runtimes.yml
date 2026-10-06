@@ -72,6 +72,4 @@ jobs:
        runtime_dir: ${{ inputs.runtime_dir }}
        sha: ${{ needs.guard.outputs.sha }}
     permissions:
-      id-token: write
-      attestations: write
       contents: read
