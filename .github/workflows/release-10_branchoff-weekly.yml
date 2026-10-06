@@ -48,7 +48,7 @@ jobs:
           INPUT_NODE_VERSION: ${{ inputs.node_version }}
           INPUT_WEEKLY_VERSION: ${{ inputs.weekly_version }}
         run: |
-          . ./.github/scripts/common/lib.sh
+          . ./.github/scripts/pipeline-lib.sh
 
           if [ -n "$INPUT_NODE_VERSION" ]; then
             node_version=$(filter_version_from_input "$INPUT_NODE_VERSION")

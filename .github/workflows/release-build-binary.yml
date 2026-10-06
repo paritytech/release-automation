@@ -59,6 +59,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: paritytech/polkadot-sdk
 
       - name: Set image
         id: set_image
@@ -90,6 +92,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: paritytech/polkadot-sdk
 
       - name: Build binary
         env:
@@ -101,10 +105,10 @@ jobs:
           if [ "${{ matrix.binaries }}" = "polkadot" ]; then
               for binary in polkadot polkadot-prepare-worker polkadot-execute-worker; do
                   echo "Building $binary..."
-                  ./.github/scripts/release/build-linux-release.sh "$binary" "$PACKAGE" "$PROFILE" "$FEATURES"
+                  ./.github/scripts/release/build-linux-release.sh "$binary" "$PACKAGE" "$FEATURES"
               done
           else
-            ./.github/scripts/release/build-linux-release.sh "${{ matrix.binaries }}" "$PACKAGE" "$PROFILE" "$FEATURES"
+            ./.github/scripts/release/build-linux-release.sh "${{ matrix.binaries }}" "$PACKAGE" "$FEATURES"
           fi
 
       - name: Upload ${{ inputs.binary }} artifacts

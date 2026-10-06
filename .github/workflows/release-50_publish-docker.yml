@@ -130,7 +130,7 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
           INPUT_WEEKLY_RELEASE_TAG: ${{ inputs.weekly_release_tag }}
         run: |
-          . ./.github/scripts/common/lib.sh
+          . ./.github/scripts/pipeline-lib.sh
 
           VERSION=$(filter_version_from_input "$INPUT_VERSION")
           echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
