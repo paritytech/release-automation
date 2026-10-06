@@ -1,0 +1,62 @@
+name: Check scripts
+
+# Build logic lives in polkadot-sdk. This repo keeps only pipeline-lib.sh and the
+# guard, so the forked copies removed in release-engineering#314 cannot creep back.
+
+on:
+  pull_request:
+  merge_group:
+
+jobs:
+  check-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: No scripts outside guard/ and pipeline-lib.sh
+        run: |
+          unexpected=$(find .github/scripts -type f \
+            ! -path '.github/scripts/guard/*' \
+            ! -path '.github/scripts/pipeline-lib.sh')
+          if [ -n "$unexpected" ]; then
+            echo "These belong in polkadot-sdk, not here:"
+            echo "$unexpected"
+            exit 1
+          fi
+
+      - name: Workflows must read scripts from a polkadot-sdk checkout
+        run: |
+          ruby -ryaml -e '
+            bad = []
+            Dir[".github/workflows/*.yml"].sort.each do |f|
+              (YAML.load_file(f)["jobs"] || {}).each do |job, j|
+                sdk = []
+                (j["steps"] || []).each do |s|
+                  if s["uses"].to_s.include?("actions/checkout")
+                    w = s["with"] || {}
+                    path = w["path"].to_s.sub(%r{/\z}, "")
+                    path = "" if path == "."
+                    if (w["repository"] || "").to_s == "paritytech/polkadot-sdk"
+                      sdk |= [path]
+                    else
+                      sdk -= [path]
+                    end
+                  end
+                  s["run"].to_s.each_line do |line|
+                    next if line.strip.start_with?("#")
+                    next unless line =~ %r{\.github/scripts/(common|release)/}
+                    ok = sdk.any? do |p|
+                      p.empty? ? line !~ %r{[A-Za-z0-9_-][\w.-]*/\.github/scripts/} : line.include?("#{p}/.github/scripts/")
+                    end
+                    bad << "#{File.basename(f)} :: #{job} :: #{line.strip}" unless ok
+                  end
+                end
+              end
+            end
+            unless bad.empty?
+              puts "These read scripts from this repo instead of a polkadot-sdk checkout:"
+              bad.each { |b| puts "  #{b}" }
+              exit 1
+            end
+            puts "ok"
+          '
