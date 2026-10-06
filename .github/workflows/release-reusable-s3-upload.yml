@@ -36,8 +36,12 @@ jobs:
         AWS_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
 
       steps:
-        - name: Checkout
+        - name: Checkout polkadot-sdk scripts
           uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+          with:
+            repository: paritytech/polkadot-sdk
+            ref: ${{ inputs.release_tag }}
+            path: polkadot-sdk
 
         - name: Download amd64 artifacts
           uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
@@ -54,5 +58,5 @@ jobs:
 
         - name: Upload ${{ inputs.package }} artifacts to s3
           run: |
-            . ./.github/scripts/release/release_lib.sh
+            . "${GITHUB_WORKSPACE}"/polkadot-sdk/.github/scripts/release/release_lib.sh
             upload_s3_release ${{ inputs.package }} ${{ inputs.release_tag }} ${{ inputs.target }}
