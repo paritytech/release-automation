@@ -1,0 +1,133 @@
+name: Release - Publish final release (stable)
+
+# Publishing from the UI makes GitHub create the final tag itself, and that tag
+# is lightweight and unsigned. Tagging here puts a `git tag -s` back in the loop.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Tag of the rc being released, with the format polkadot-stableYYMM(-X)-rcX
+        required: true
+        type: string
+      create_old_release_tag:
+        description: Also create the legacy polkadot-vX.Y.Z tag
+        default: true
+        type: boolean
+
+jobs:
+  guard:
+    uses: ./.github/workflows/release-guard.yml
+    with:
+      release_tag: ${{ inputs.release_tag }}
+
+  validate-inputs:
+    needs: [ guard ]
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.validate_inputs.outputs.release_tag }}
+      final_tag: ${{ steps.validate_inputs.outputs.final_tag }}
+
+    steps:
+      - name: Validate inputs
+        id: validate_inputs
+        env:
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          # The guard has already validated the tag format; only an rc can be published.
+          if [[ ! "$INPUT_RELEASE_TAG" =~ -rc[0-9]+$ ]]; then
+            echo "::error::release_tag '${INPUT_RELEASE_TAG}' is not an rc tag"
+            exit 1
+          fi
+          echo "release_tag=${INPUT_RELEASE_TAG}" >> $GITHUB_OUTPUT
+          echo "final_tag=$(echo ${INPUT_RELEASE_TAG} | sed 's/-rc[0-9]*$//')" >> $GITHUB_OUTPUT
+
+  publish-final-release:
+    needs: [ guard, validate-inputs ]
+    runs-on: ubuntu-latest
+    environment: release
+    env:
+      PGP_KMS_KEY: ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
+      PGP_KMS_HASH: ${{ secrets.PGP_KMS_HASH }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+      RC_TAG: ${{ needs.validate-inputs.outputs.release_tag }}
+      FINAL_TAG: ${{ needs.validate-inputs.outputs.final_tag }}
+
+    steps:
+      - name: Install pgpkms
+        run: |
+          pip install git+https://github.com/paritytech-release/pgpkms.git@dc30e487d47f53d069831a4306377a3ec32638ae
+
+      - name: Generate content write token for the release automation
+        id: generate_write_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+            client-id: ${{ vars.RELEASE_AUTOMATION_CLIENT_ID }}
+            private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
+            owner: paritytech
+            repositories: polkadot-sdk
+
+      - name: Checkout polkadot-sdk at the verified commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: paritytech/polkadot-sdk
+          ref: ${{ needs.guard.outputs.sha }}
+          fetch-depth: 0
+          token: ${{ steps.generate_write_token.outputs.token }}
+
+      - name: Check the draft is there and the final tag is free
+        env:
+          GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
+        run: |
+          # polkadot-* tags cannot be moved or deleted afterwards, so stop before
+          # tagging rather than halfway through.
+          if git rev-parse -q --verify "refs/tags/${FINAL_TAG}" >/dev/null; then
+            echo "::error::tag ${FINAL_TAG} already exists"
+            exit 1
+          fi
+          draft=$(gh release view "$RC_TAG" --repo paritytech/polkadot-sdk --json isDraft --jq .isDraft)
+          if [[ "$draft" != "true" ]]; then
+            echo "::error::release ${RC_TAG} is not a draft"
+            exit 1
+          fi
+
+      - name: Import gpg keys
+        run: |
+          . ./.github/scripts/common/lib.sh
+
+          import_gpg_keys
+
+      - name: Config git
+        run: |
+          git config --global gpg.program /home/runner/.local/bin/pgpkms-git
+          git config --global user.name "ParityReleases"
+          git config --global user.email "release-team@parity.io"
+          git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
+
+      - name: Create the final tag
+        run: |
+          git tag -s "$FINAL_TAG" -m "Polkadot release $FINAL_TAG"
+          git push origin "$FINAL_TAG"
+          git tag -v "$FINAL_TAG"
+
+      - name: Publish the draft under the final tag
+        env:
+          GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
+        run: |
+          # The tag exists now, so GitHub attaches to it instead of making one.
+          gh release edit "$RC_TAG" \
+            --repo paritytech/polkadot-sdk \
+            --tag "$FINAL_TAG" \
+            --title "Polkadot $FINAL_TAG" \
+            --draft=false \
+            --latest
+
+  create-old-release-tag:
+    if: ${{ inputs.create_old_release_tag }}
+    needs: [ validate-inputs, publish-final-release ]
+    uses: ./.github/workflows/release-stable-60_create-old-release-tag.yml
+    with:
+      release_tag: ${{ needs.validate-inputs.outputs.final_tag }}
+    secrets: inherit
