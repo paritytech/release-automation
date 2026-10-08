@@ -63,16 +63,6 @@ jobs:
       sha: ${{ steps.verify.outputs.sha }}
       stable_branch: ${{ steps.verify.outputs.stable_branch }}
     steps:
-      - name: Check the release killswitch
-        env:
-          RELEASES_ON: ${{ vars.RELEASES_ON }}
-        run: |
-          if [[ "$RELEASES_ON" != "true" ]]; then
-            echo -n "::error title=Releases are disabled::"
-            echo "vars.RELEASES_ON is '${RELEASES_ON:-unset}', expected 'true'. Set it to 'true' to allow releases."
-            exit 1
-          fi
-
       - name: Check the caller
         env:
           CALLER_REPO: ${{ github.repository }}
@@ -100,4 +90,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASES_ON: ${{ vars.RELEASES_ON }}
         run: ./.github/scripts/guard/verify-release-ref.sh

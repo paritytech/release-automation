@@ -1,0 +1,121 @@
+name: Test environment isolation
+
+# Proves that production secrets stay inside the `release` environment, which is
+# what makes it safe to co-host the experimental weekly flow (environment
+# `weekly`) in the same repo. See paritytech/release-engineering#315.
+#
+# Setup: create a secret ENV_ISOLATION_CANARY with any non-empty dummy value in
+# the `release` environment ONLY. It is never used for anything else.
+#
+# Not run on pull requests: once `release` restricts which branches may deploy
+# to it (checked below), the positive control could not run from a PR branch.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Positive control. Without it the checks below would pass vacuously if the
+  # canary were missing or misnamed.
+  release-sees-canary:
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - name: The release environment can read its own canary
+        env:
+          CANARY: ${{ secrets.ENV_ISOLATION_CANARY }}
+        run: |
+          if [[ -z "$CANARY" ]]; then
+            echo "::error::ENV_ISOLATION_CANARY is not readable from the release environment. Create it there (and only there) with any non-empty value."
+            exit 1
+          fi
+          echo "ok"
+
+  weekly-cannot-read-canary:
+    needs: [release-sees-canary]
+    runs-on: ubuntu-latest
+    environment: weekly
+    steps:
+      - name: The weekly environment cannot read a release secret
+        env:
+          CANARY: ${{ secrets.ENV_ISOLATION_CANARY }}
+        run: |
+          if [[ -n "$CANARY" ]]; then
+            echo "::error::A job in the weekly environment can read ENV_ISOLATION_CANARY. It is defined outside the release environment, or environments do not isolate secrets."
+            exit 1
+          fi
+          echo "ok"
+
+  # Repo- and org-level secrets are readable by every job in every environment,
+  # weekly and pull requests included. A job with no environment sees exactly
+  # those, so none of the secrets the stable pipeline uses may show up here.
+  no-environment-sees-no-release-secrets:
+    needs: [release-sees-canary]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: No stable pipeline secret is defined at repo or org level
+        env:
+          # Only the names are read below; values are never printed.
+          VISIBLE_SECRETS: ${{ toJSON(secrets) }}
+        run: |
+          # Every secret the stable pipeline references, plus the canary.
+          release_secrets=$( {
+            grep -ohE 'secrets\.[A-Za-z0-9_]+' .github/workflows/release-stable-*.yml | sed 's/^secrets\.//'
+            echo ENV_ISOLATION_CANARY
+          } | tr '[:lower:]' '[:upper:]' | grep -vx GITHUB_TOKEN | sort -u)
+
+          visible=$(jq -r 'keys[] | ascii_upcase' <<<"$VISIBLE_SECRETS" | sort -u)
+
+          leaked=$(comm -12 <(echo "$release_secrets") <(echo "$visible"))
+          if [[ -n "$leaked" ]]; then
+            echo "::error::These stable pipeline secrets are readable without the release environment. Move them into the release environment and delete the repo/org-level copies:"
+            echo "$leaked"
+            exit 1
+          fi
+          echo "Checked $(wc -l <<<"$release_secrets") secret names, none visible outside the release environment."
+
+  # Requires a deployment branch policy allowing main and nothing else, NOT
+  # required reviewers: reviewers would stall every automated release job.
+  # Every release entry point is workflow_dispatch, schedule or workflow_call
+  # running from main, so this blocks PR branches without affecting the
+  # pipeline. "Protected branches only" is rejected on purpose: it silently
+  # widens as branches get protected, and main is protected by a ruleset rather
+  # than a classic branch protection rule.
+  release-environment-is-restricted:
+    runs-on: ubuntu-latest
+    # The environments API needs actions: read.
+    permissions:
+      actions: read
+    steps:
+      - name: Only main may deploy to the release environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          policy=$(gh api "repos/${REPO}/environments/release" --jq '.deployment_branch_policy')
+          echo "Deployment branch policy: ${policy}"
+
+          if [[ $(jq -r '.custom_branch_policies // false' <<<"${policy:-null}") != "true" ]]; then
+            echo "::error::The release environment must use 'Selected branches and tags' with main as the only rule. Without it a pull request branch can declare 'environment: release' and read the signing keys."
+            exit 1
+          fi
+
+          allowed=$(gh api "repos/${REPO}/environments/release/deployment-branch-policies" \
+            --jq '[.branch_policies[] | "\(.type // "branch"):\(.name)"] | sort | join(",")')
+          echo "Allowed refs: ${allowed}"
+
+          if [[ "$allowed" != "branch:main" ]]; then
+            echo "::error::The release environment must allow exactly branch 'main', found: ${allowed}"
+            exit 1
+          fi
+          echo "ok"
