@@ -1,4 +1,4 @@
-name: Release - Publish final release (stable)
+name: Stable Release - Publish final release
 
 # Publishing from the UI makes GitHub create the final tag itself, and that tag
 # is lightweight and unsigned. Tagging here puts a `git tag -s` back in the loop.
