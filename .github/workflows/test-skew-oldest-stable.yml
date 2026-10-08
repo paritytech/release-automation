@@ -1,0 +1,127 @@
+name: Test skew against oldest supported stable
+
+# One pipeline on main serves every release train, and fixes are no longer
+# backported, so a pipeline change must still work with the scripts and layout
+# of the oldest stable branch still in support. This runs the guard plus a
+# dry-run build of `polkadot` (binaries and deb/rpm packaging) against that
+# branch's newest release tag, so a change that breaks an old train fails here
+# rather than mid-release. See paritytech/release-engineering#315.
+#
+# The dry run uses no environment and no secrets, and skips signing,
+# attestations and S3 upload.
+#
+# The guard step runs verify-release-ref.sh directly with RELEASES_ON forced on,
+# rather than calling release-guard.yml. The killswitch must not block CI for
+# the very PRs that fix a paused pipeline, and the production guard keeps no
+# bypass input. Nothing skew-related is lost: the guard never reads the
+# polkadot-sdk tree, and its own tests are in test-guard.yml.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/release-guard.yml"
+      - ".github/workflows/release-stable-*.yml"
+      - ".github/workflows/test-skew-oldest-stable.yml"
+      - ".github/scripts/**"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Tag to build instead of the oldest supported stable's newest tag, e.g. polkadot-stable2512-8
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    # Fork PRs cannot grant the id-token/attestations permissions the build
+    # workflow declares, so they are skipped.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+    steps:
+      - name: Resolve the oldest supported stable release tag
+        id: resolve
+        env:
+          INPUT_TAG: ${{ inputs.release_tag }}
+          # Optional pin, e.g. stable2512. Unset, the oldest of the newest
+          # SUPPORTED_STABLE_RELEASES stable trains that have shipped a final
+          # release is used (four: one year). A branch cut but not yet released
+          # does not count, so it does not push a supported train out early.
+          OLDEST_SUPPORTED_STABLE: ${{ vars.OLDEST_SUPPORTED_STABLE }}
+          SUPPORTED_STABLE_RELEASES: 4
+          SDK: https://github.com/paritytech/polkadot-sdk
+        run: |
+          set -euo pipefail
+
+          if [[ -n "$INPUT_TAG" ]]; then
+            echo "Using the requested tag ${INPUT_TAG}"
+            echo "release_tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          tags=$(git ls-remote --tags --refs "$SDK" 'refs/tags/polkadot-stable*' |
+            awk '{print $2}' | sed 's#^refs/tags/##') && [[ -n "$tags" ]] ||
+            { echo "::error::Could not list polkadot-stable* tags in ${SDK}"; exit 1; }
+
+          if [[ -n "$OLDEST_SUPPORTED_STABLE" ]]; then
+            branch=$OLDEST_SUPPORTED_STABLE
+            echo "Using vars.OLDEST_SUPPORTED_STABLE=${branch}"
+          else
+            released=$(sed -nE 's/^polkadot-(stable[0-9]{4})(-[0-9]+)?$/\1/p' <<<"$tags" | sort -u)
+            [[ -n "$released" ]] || { echo "::error::No final stable release tags found in ${SDK}"; exit 1; }
+            echo "Stable trains with a final release: $(tr '\n' ' ' <<<"$released")"
+            branch=$(tail -n "$SUPPORTED_STABLE_RELEASES" <<<"$released" | head -n 1)
+          fi
+          [[ "$branch" =~ ^stable[0-9]{4}$ ]] || { echo "::error::Not a stable branch: '${branch}'"; exit 1; }
+
+          # Prefer the newest final release; fall back to the newest rc (only
+          # reachable through the override).
+          tag=$(grep -E "^polkadot-${branch}(-[0-9]+)?$" <<<"$tags" | sort -V | tail -n 1 || true)
+          [[ -n "$tag" ]] ||
+            tag=$(grep -E "^polkadot-${branch}(-[0-9]+)?-rc[0-9]+$" <<<"$tags" | sort -V | tail -n 1 || true)
+          [[ -n "$tag" ]] || { echo "::error::No release tag found for ${branch}"; exit 1; }
+
+          echo "Oldest supported stable: ${branch}, building ${tag}"
+          echo "release_tag=${tag}" >> "$GITHUB_OUTPUT"
+
+  # Same checks as release-guard.yml, minus the killswitch (see the header).
+  guard:
+    needs: [resolve]
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.verify.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify the release ref
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+          RELEASES_ON: "true"
+        run: ./.github/scripts/guard/verify-release-ref.sh
+
+  # No `secrets: inherit`: the dry run must not see any secrets.
+  build-polkadot:
+    needs: [resolve, guard]
+    uses: ./.github/workflows/release-stable-reusable-rc-build.yml
+    with:
+      binary: '["polkadot", "polkadot-prepare-worker", "polkadot-execute-worker"]'
+      package: polkadot
+      release_tag: ${{ needs.resolve.outputs.release_tag }}
+      sha: ${{ needs.guard.outputs.sha }}
+      target: x86_64-unknown-linux-gnu
+      dry_run: true
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read

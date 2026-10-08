@@ -1,6 +1,10 @@
 # Builds, signs and attests node binaries from paritytech/polkadot-sdk, checked
 # out at the workspace root at the SHA verified by release-guard. Callers must
 # pass the guard's `sha` output; every job refuses to run without one.
+#
+# With `dry_run: true` it only builds and packages: no `release` environment
+# (so no environment secrets), no signing, no attestations, no S3 upload. The
+# skew regression check uses this to build old release trains on pull requests.
 name: RC Build (stable)
 
 on:
@@ -37,6 +41,12 @@ on:
         required: false
         type: string
 
+      dry_run:
+        description: Build and package only. Skips the release environment, signing, attestations and S3 upload
+        required: false
+        default: false
+        type: boolean
+
 
 permissions:
   id-token: write
@@ -72,7 +82,7 @@ jobs:
     if: ${{ inputs.target == 'x86_64-unknown-linux-gnu' }}
     needs: [set-image]
     runs-on: ubuntu-latest-m
-    environment: release
+    environment: ${{ !inputs.dry_run && 'release' || '' }}
     container:
       image: ${{ needs.set-image.outputs.IMAGE }}
     strategy:
@@ -87,6 +97,7 @@ jobs:
 
     steps:
       - name: Install pgpkkms
+        if: ${{ !inputs.dry_run }}
         run: |
           # Install pgpkms that is used to sign built artifacts
           python3 -m pip install "pgpkms @ git+https://github.com/paritytech-release/pgpkms.git@dc30e487d47f53d069831a4306377a3ec32638ae"
@@ -106,6 +117,7 @@ jobs:
           fetch-depth: 0
 
       - name: Import gpg keys
+        if: ${{ !inputs.dry_run }}
         shell: bash
         run: |
           . ./.github/scripts/common/lib.sh
@@ -122,6 +134,7 @@ jobs:
           ./.github/scripts/release/build-linux-release.sh "$BINARY_NAME" "$INPUT_PACKAGE" "$INPUT_FEATURES"
 
       - name: Generate artifact attestation
+        if: ${{ !inputs.dry_run }}
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: /artifacts/${{ matrix.binaries }}/${{ matrix.binaries }}
@@ -130,6 +143,7 @@ jobs:
       # not the polkadot-sdk commit that was checked out and built. This attestation
       # records that commit and tag, signed by the same workflow identity.
       - name: Attest polkadot-sdk source commit
+        if: ${{ !inputs.dry_run }}
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: /artifacts/${{ matrix.binaries }}/${{ matrix.binaries }}
@@ -138,6 +152,7 @@ jobs:
             ${{ format('{{"repository":"https://github.com/paritytech/polkadot-sdk","commit":"{0}","tag":"{1}"}}', inputs.sha, inputs.release_tag) }}
 
       - name: Sign artifacts
+        if: ${{ !inputs.dry_run }}
         working-directory: /artifacts/${{ matrix.binaries }}
         env:
           BINARY_NAME: ${{ matrix.binaries }}
@@ -156,6 +171,7 @@ jobs:
           check_sha256  "$BINARY_NAME"
 
       - name: Check GPG ${{ matrix.binaries }}
+        if: ${{ !inputs.dry_run }}
         working-directory: /artifacts/${{ matrix.binaries }}
         shell: bash
         env:
@@ -174,7 +190,7 @@ jobs:
   build-macos-rc:
      if: ${{ inputs.target == 'aarch64-apple-darwin' }}
      runs-on: parity-macos
-     environment: release
+     environment: ${{ !inputs.dry_run && 'release' || '' }}
      strategy:
        matrix:
          binaries: ${{ fromJSON(inputs.binary) }}
@@ -273,11 +289,13 @@ jobs:
            brew install coreutils
 
        - name: Install pgpkkms
+         if: ${{ !inputs.dry_run }}
          run: |
            # Install pgpkms that is used to sign built artifacts
            python3 -m pip  install "pgpkms @ git+https://github.com/paritytech-release/pgpkms.git@dc30e487d47f53d069831a4306377a3ec32638ae" --break-system-packages
 
        - name: Import gpg keys
+         if: ${{ !inputs.dry_run }}
          shell: bash
          run: |
            . ./.github/scripts/common/lib.sh
@@ -297,6 +315,7 @@ jobs:
        # parity-macos, so the provenance is weaker: GitHub signs what the runner
        # reports but cannot vouch for our hardware (runnerEnvironment: self-hosted).
        - name: Generate artifact attestation
+         if: ${{ !inputs.dry_run }}
          uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
          with:
            subject-path: ${{ env.ARTIFACTS_PATH }}/${{ matrix.binaries }}
@@ -305,6 +324,7 @@ jobs:
        # not the polkadot-sdk commit that was checked out and built. This attestation
        # records that commit and tag, signed by the same workflow identity.
        - name: Attest polkadot-sdk source commit
+         if: ${{ !inputs.dry_run }}
          uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
          with:
            subject-path: ${{ env.ARTIFACTS_PATH }}/${{ matrix.binaries }}
@@ -313,6 +333,7 @@ jobs:
              ${{ format('{{"repository":"https://github.com/paritytech/polkadot-sdk","commit":"{0}","tag":"{1}"}}', inputs.sha, inputs.release_tag) }}
 
        - name: Sign artifacts
+         if: ${{ !inputs.dry_run }}
          working-directory: ${{ env.ARTIFACTS_PATH }}
          env:
            BINARY_NAME: ${{ matrix.binaries }}
@@ -331,6 +352,7 @@ jobs:
            check_sha256  "$BINARY_NAME"
 
        - name: Check GPG ${{ matrix.binaries }}
+         if: ${{ !inputs.dry_run }}
          working-directory: ${{ env.ARTIFACTS_PATH }}
          shell: bash
          env:
@@ -417,6 +439,7 @@ jobs:
 
     # Kept: deb/rpm packages are not reproducible either.
     - name: Generate artifact attestation
+      if: ${{ !inputs.dry_run }}
       uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
       with:
         subject-path: |
@@ -427,6 +450,7 @@ jobs:
     # not the polkadot-sdk commit that was checked out and built. This attestation
     # records that commit and tag, signed by the same workflow identity.
     - name: Attest polkadot-sdk source commit
+      if: ${{ !inputs.dry_run }}
       uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
       with:
         subject-path: |
@@ -444,7 +468,7 @@ jobs:
         overwrite: true
 
   upload-polkadot-artifacts-to-s3:
-    if: ${{ inputs.package == 'polkadot' && inputs.target == 'x86_64-unknown-linux-gnu' }}
+    if: ${{ !inputs.dry_run && inputs.package == 'polkadot' && inputs.target == 'x86_64-unknown-linux-gnu' }}
     needs: [build-polkadot-deb-and-rpm-package]
     uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
     with:
@@ -455,7 +479,7 @@ jobs:
     secrets: inherit
 
   upload-polkadot-parachain-artifacts-to-s3:
-    if: ${{ inputs.package == 'polkadot-parachain-bin' && inputs.target == 'x86_64-unknown-linux-gnu' }}
+    if: ${{ !inputs.dry_run && inputs.package == 'polkadot-parachain-bin' && inputs.target == 'x86_64-unknown-linux-gnu' }}
     needs: [build-rc]
     uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
     with:
@@ -466,7 +490,7 @@ jobs:
     secrets: inherit
 
   upload-polkadot-omni-node-artifacts-to-s3:
-    if: ${{ inputs.package == 'polkadot-omni-node' && inputs.target == 'x86_64-unknown-linux-gnu' }}
+    if: ${{ !inputs.dry_run && inputs.package == 'polkadot-omni-node' && inputs.target == 'x86_64-unknown-linux-gnu' }}
     needs: [build-rc]
     uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
     with:
@@ -477,7 +501,7 @@ jobs:
     secrets: inherit
 
   upload-frame-omni-bencher-artifacts-to-s3:
-    if: ${{ inputs.package == 'frame-omni-bencher' && inputs.target == 'x86_64-unknown-linux-gnu' }}
+    if: ${{ !inputs.dry_run && inputs.package == 'frame-omni-bencher' && inputs.target == 'x86_64-unknown-linux-gnu' }}
     needs: [build-rc]
     uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
     with:
@@ -488,7 +512,7 @@ jobs:
     secrets: inherit
 
   upload-chain-spec-builder-artifacts-to-s3:
-    if: ${{ inputs.package == 'staging-chain-spec-builder' && inputs.target == 'x86_64-unknown-linux-gnu' }}
+    if: ${{ !inputs.dry_run && inputs.package == 'staging-chain-spec-builder' && inputs.target == 'x86_64-unknown-linux-gnu' }}
     needs: [build-rc]
     uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
     with:
@@ -499,7 +523,7 @@ jobs:
     secrets: inherit
 
   upload-substrate-node-artifacts-to-s3:
-    if: ${{ inputs.package == 'staging-node-cli' && inputs.target == 'x86_64-unknown-linux-gnu' }}
+    if: ${{ !inputs.dry_run && inputs.package == 'staging-node-cli' && inputs.target == 'x86_64-unknown-linux-gnu' }}
     needs: [build-rc]
     uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
     with:
@@ -510,7 +534,7 @@ jobs:
     secrets: inherit
 
   upload-eth-rpc-artifacts-to-s3:
-    if: ${{ inputs.package == 'pallet-revive-eth-rpc' && inputs.target == 'x86_64-unknown-linux-gnu' }}
+    if: ${{ !inputs.dry_run && inputs.package == 'pallet-revive-eth-rpc' && inputs.target == 'x86_64-unknown-linux-gnu' }}
     needs: [build-rc]
     uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
     with:
@@ -521,7 +545,7 @@ jobs:
     secrets: inherit
 
   upload-subkey-artifacts-to-s3:
-    if: ${{ inputs.package == 'subkey' && inputs.target == 'x86_64-unknown-linux-gnu' }}
+    if: ${{ !inputs.dry_run && inputs.package == 'subkey' && inputs.target == 'x86_64-unknown-linux-gnu' }}
     needs: [build-rc]
     uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
     with:
@@ -532,7 +556,7 @@ jobs:
     secrets: inherit
 
   upload-polkadot-macos-artifacts-to-s3:
-     if: ${{ inputs.package == 'polkadot' && inputs.target == 'aarch64-apple-darwin' }}
+     if: ${{ !inputs.dry_run && inputs.package == 'polkadot' && inputs.target == 'aarch64-apple-darwin' }}
      # TODO: add and use a `build-polkadot-homebrew-package` which packs all `polkadot` binaries:
      # `polkadot`, `polkadot-prepare-worker` and `polkadot-execute-worker`.
      needs: [build-macos-rc]
@@ -545,7 +569,7 @@ jobs:
      secrets: inherit
 
   upload-polkadot-prepare-worker-macos-artifacts-to-s3:
-     if: ${{ inputs.package == 'polkadot' && inputs.target == 'aarch64-apple-darwin' }}
+     if: ${{ !inputs.dry_run && inputs.package == 'polkadot' && inputs.target == 'aarch64-apple-darwin' }}
      needs: [build-macos-rc]
      uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
      with:
@@ -556,7 +580,7 @@ jobs:
      secrets: inherit
 
   upload-polkadot-execute-worker-macos-artifacts-to-s3:
-     if: ${{ inputs.package == 'polkadot' && inputs.target == 'aarch64-apple-darwin' }}
+     if: ${{ !inputs.dry_run && inputs.package == 'polkadot' && inputs.target == 'aarch64-apple-darwin' }}
      needs: [build-macos-rc]
      uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
      with:
@@ -567,7 +591,7 @@ jobs:
      secrets: inherit
 
   upload-polkadot-omni-node-macos-artifacts-to-s3:
-     if: ${{ inputs.package == 'polkadot-omni-node' && inputs.target == 'aarch64-apple-darwin' }}
+     if: ${{ !inputs.dry_run && inputs.package == 'polkadot-omni-node' && inputs.target == 'aarch64-apple-darwin' }}
      needs: [build-macos-rc]
      uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
      with:
@@ -578,7 +602,7 @@ jobs:
      secrets: inherit
 
   upload-polkadot-parachain-macos-artifacts-to-s3:
-     if: ${{ inputs.package == 'polkadot-parachain-bin' && inputs.target == 'aarch64-apple-darwin' }}
+     if: ${{ !inputs.dry_run && inputs.package == 'polkadot-parachain-bin' && inputs.target == 'aarch64-apple-darwin' }}
      needs: [build-macos-rc]
      uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
      with:
@@ -589,7 +613,7 @@ jobs:
      secrets: inherit
 
   upload-frame-omni-bencher-macos-artifacts-to-s3:
-     if: ${{ inputs.package == 'frame-omni-bencher' && inputs.target == 'aarch64-apple-darwin' }}
+     if: ${{ !inputs.dry_run && inputs.package == 'frame-omni-bencher' && inputs.target == 'aarch64-apple-darwin' }}
      needs: [build-macos-rc]
      uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
      with:
@@ -600,7 +624,7 @@ jobs:
      secrets: inherit
 
   upload-chain-spec-builder-macos-artifacts-to-s3:
-     if: ${{ inputs.package == 'staging-chain-spec-builder' && inputs.target == 'aarch64-apple-darwin' }}
+     if: ${{ !inputs.dry_run && inputs.package == 'staging-chain-spec-builder' && inputs.target == 'aarch64-apple-darwin' }}
      needs: [build-macos-rc]
      uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
      with:
@@ -611,7 +635,7 @@ jobs:
      secrets: inherit
 
   upload-substrate-node-macos-artifacts-to-s3:
-     if: ${{ inputs.package == 'staging-node-cli' && inputs.target == 'aarch64-apple-darwin' }}
+     if: ${{ !inputs.dry_run && inputs.package == 'staging-node-cli' && inputs.target == 'aarch64-apple-darwin' }}
      needs: [build-macos-rc]
      uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
      with:
@@ -622,7 +646,7 @@ jobs:
      secrets: inherit
 
   upload-eth-rpc-macos-artifacts-to-s3:
-     if: ${{ inputs.package == 'pallet-revive-eth-rpc' && inputs.target == 'aarch64-apple-darwin' }}
+     if: ${{ !inputs.dry_run && inputs.package == 'pallet-revive-eth-rpc' && inputs.target == 'aarch64-apple-darwin' }}
      needs: [build-macos-rc]
      uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
      with:
@@ -633,7 +657,7 @@ jobs:
      secrets: inherit
 
   upload-subkey-macos-artifacts-to-s3:
-     if: ${{ inputs.package == 'subkey' && inputs.target == 'aarch64-apple-darwin' }}
+     if: ${{ !inputs.dry_run && inputs.package == 'subkey' && inputs.target == 'aarch64-apple-darwin' }}
      needs: [build-macos-rc]
      uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
      with:
