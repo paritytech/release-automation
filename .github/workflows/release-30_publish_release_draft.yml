@@ -277,9 +277,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BUILD_RUN_ID: ${{ inputs.build_run_id }}
           CHAIN: ${{ matrix.chain }}
+          REPO: ${{ github.repository }}
         run: |
           mkdir -p "${{ github.workspace }}/runtimes/"
-          gh run download "$BUILD_RUN_ID" --name "${CHAIN}-runtime" --dir "${{ github.workspace }}/runtimes"
+          gh run download "$BUILD_RUN_ID" --repo "$REPO" --name "${CHAIN}-runtime" --dir "${{ github.workspace }}/runtimes"
           echo "Downloaded artifacts:"
           find "${{ github.workspace }}/runtimes" -type f | head -50
 
@@ -349,9 +350,11 @@ jobs:
           BUILD_RUN_ID: ${{ inputs.build_run_id }}
           BINARY: ${{ matrix.binary }}
           TARGET: ${{ matrix.target }}
+          REPO: ${{ github.repository }}
         run: |
           mkdir -p "release-artifacts/${TARGET}/${BINARY}"
           gh run download "$BUILD_RUN_ID" \
+            --repo "$REPO" \
             --name "${BINARY}_${TARGET}" \
             --dir "release-artifacts/${TARGET}/${BINARY}"
 
