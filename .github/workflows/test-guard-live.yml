@@ -1,0 +1,54 @@
+name: Test release guard (live)
+
+# Runs the guard script against the real polkadot-sdk API. It depends on the
+# state of polkadot-sdk (tags, branch protection), so it runs only when the
+# guard changes, plus weekly to catch drift, rather than blocking unrelated PRs.
+# The stubbed unit tests in test-guard.yml run on every PR.
+# See paritytech/release-engineering#315.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/release-guard.yml"
+      - ".github/workflows/test-guard-live.yml"
+      - ".github/scripts/guard/**"
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # RELEASES_ON is set here, not read from vars, so this tests the ref checks
+  # independently of the killswitch (which the unit tests cover).
+  live-smoke:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASES_ON: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: A real release tag passes
+        env:
+          RELEASE_TAG: polkadot-stable2609-rc2
+        run: ./.github/scripts/guard/verify-release-ref.sh
+
+      # polkadot-stable2609-rc1 was tagged on master, not on stable2609.
+      - name: A tag cut off its stable branch is rejected
+        env:
+          RELEASE_TAG: polkadot-stable2609-rc1
+          GITHUB_OUTPUT: /dev/null
+        run: |
+          if ./.github/scripts/guard/verify-release-ref.sh 2>err.log; then
+            echo "::error::The guard accepted ${RELEASE_TAG}, which is not on stable2609"
+            exit 1
+          fi
+          sed "s/^:://" err.log  # print without raising an annotation
+          grep -qF "::error title=Ref not on the release branch::" err.log || {
+            echo "::error::The guard rejected ${RELEASE_TAG} for the wrong reason"
+            exit 1
+          }

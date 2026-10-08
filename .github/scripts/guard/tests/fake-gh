@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+#
+# Stand-in for `gh` used by test-verify-release-ref.sh. Serves `gh api <path>`
+# from fixture files instead of the GitHub API.
+#
+#   $FAKE_GH_FIXTURES/<path>          response body for <path>
+#   $FAKE_GH_FIXTURES/<path>.error    fail with this text on stderr (e.g. "HTTP 500")
+#   neither                           fail with "HTTP 404", like gh does
+#
+# Every call is appended to $FAKE_GH_FIXTURES/calls so tests can assert that a
+# case halted before reaching the API.
+
+set -euo pipefail
+
+: "${FAKE_GH_FIXTURES:?FAKE_GH_FIXTURES is required}"
+
+[[ "${1:-}" == "api" ]] || {
+	echo "fake-gh: only 'gh api' is supported, got: $*" >&2
+	exit 2
+}
+shift
+
+path="" jq_expr=""
+while (($#)); do
+	case "$1" in
+	--jq)
+		jq_expr=$2
+		shift 2
+		;;
+	-*)
+		echo "fake-gh: unsupported flag $1" >&2
+		exit 2
+		;;
+	*)
+		path=$1
+		shift
+		;;
+	esac
+done
+
+echo "$path" >>"${FAKE_GH_FIXTURES}/calls"
+
+file="${FAKE_GH_FIXTURES}/${path}"
+if [[ -f "${file}.error" ]]; then
+	echo "gh: $(<"${file}.error")" >&2
+	exit 1
+fi
+if [[ ! -f "$file" ]]; then
+	echo '{"message":"Not Found","status":"404"}'
+	echo "gh: Not Found (HTTP 404)" >&2
+	exit 1
+fi
+
+if [[ -n "$jq_expr" ]]; then
+	jq -r "$jq_expr" <"$file"
+else
+	cat "$file"
+fi

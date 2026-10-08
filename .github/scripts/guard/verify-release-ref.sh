@@ -13,7 +13,7 @@
 # See paritytech/release-engineering#310 and #314.
 #
 # Requires: gh (authenticated via GH_TOKEN), jq.
-# Reads:    RELEASE_TAG
+# Reads:    RELEASES_ON, RELEASE_TAG
 # Writes:   sha, stable_branch  -> $GITHUB_OUTPUT
 
 set -euo pipefail
@@ -52,6 +52,12 @@ api() {
 	[[ "$out" == *"HTTP 404"* ]] && fail "$title" "$msg"
 	fail "GitHub API error" "gh api $* failed: ${out}"
 }
+
+# 0. The release killswitch (vars.RELEASES_ON) must be on. Checked here rather
+#    than inline in the workflow so the tests in tests/ can exercise it.
+[[ "${RELEASES_ON:-}" == "true" ]] ||
+	fail "Releases are disabled" \
+		"vars.RELEASES_ON is '${RELEASES_ON:-unset}', expected 'true'. Set it to 'true' to allow releases."
 
 : "${RELEASE_TAG:?RELEASE_TAG is required}"
 

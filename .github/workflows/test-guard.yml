@@ -1,0 +1,36 @@
+name: Test release guard
+
+# Tests for release-guard.yml and how the stable workflows are wired to it.
+# See paritytech/release-engineering#315.
+
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Guard halts and passes on the right cases (stubbed GitHub API)
+        run: ./.github/scripts/guard/tests/test-verify-release-ref.sh
+
+  wiring:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Preinstalled on GitHub's Ubuntu images; installed only if missing.
+      - name: Install PyYAML
+        run: python3 -c 'import yaml' 2>/dev/null || { sudo apt-get update && sudo apt-get install -y python3-yaml; }
+
+      - name: Every polkadot-sdk checkout is pinned to the guard SHA
+        run: python3 .github/scripts/guard/tests/check-guard-wiring.py
