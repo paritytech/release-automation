@@ -111,7 +111,7 @@ jobs:
   # fork read it from master.
   set-image:
     needs: [ validate-inputs ]
-    runs-on: ubuntu-latest-m
+    runs-on: parity-large
     outputs:
       IMAGE: ${{ steps.set_image.outputs.IMAGE }}
     steps:
@@ -126,7 +126,7 @@ jobs:
 
   publish-crates:
     needs: [ validate-inputs, set-image ]
-    runs-on: ubuntu-latest-m
+    runs-on: parity-large
     environment: release
     env:
       PGP_KMS_KEY: ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
