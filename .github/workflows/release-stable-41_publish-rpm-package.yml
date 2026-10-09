@@ -1,4 +1,4 @@
-name: Release - Publish polkadot RPM package (stable)
+name: Stable Release - Publish polkadot RPM package
 
 # This workflow publishes the polkadot RPM package by calling a reusable workflow.
 on:

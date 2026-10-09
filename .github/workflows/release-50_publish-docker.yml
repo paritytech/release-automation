@@ -1,4 +1,4 @@
-name: Release - Publish Docker Image
+name: Weekly Release - Publish Docker Image
 
 on:
   workflow_dispatch:

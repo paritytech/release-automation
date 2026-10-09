@@ -1,4 +1,4 @@
-name: Release - Publish polkadot deb package (stable)
+name: Stable Release - Publish polkadot deb package
 
 # This workflow publishes the polkadot Debian package by calling a reusable workflow.
 on:

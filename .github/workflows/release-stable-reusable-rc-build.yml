@@ -5,7 +5,7 @@
 # With `dry_run: true` it only builds and packages: no `release` environment
 # (so no environment secrets), no signing, no attestations, no S3 upload. The
 # skew regression check uses this to build old release trains on pull requests.
-name: RC Build (stable)
+name: Stable Release - RC Build
 
 on:
   workflow_call:

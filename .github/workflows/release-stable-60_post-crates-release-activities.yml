@@ -2,7 +2,7 @@
 # prdoc reorganisation) onto the `post-crates-release-<version>` branch that
 # release-80 pushed to paritytech/polkadot-sdk, and opens a PR from it to the
 # stable branch.
-name: Release - Post Crates Release Activities (stable)
+name: Stable Release - Post Crates Release Activities
 
 on:
   workflow_dispatch:

@@ -1,4 +1,4 @@
-name: Release - Notify on pipeline failure
+name: Weekly Release - Notify on pipeline failure
 
 # Watchdog for the release pipeline.
 #
@@ -24,13 +24,13 @@ on:
     workflows:
       # Reusable workflows called via `uses:` do not raise their own workflow_run event,
       # so the combined flow covers the scheduled path; the rest catch manual dispatches.
-      - "Release - Combined release flow"
-      - "Release - Branch off weekly branch"
-      - "Release - Tag weekly RC"
-      - "Release - Build RC"
-      - "Release - Build runtimes"
-      - "Release - Publish draft"
-      - "Release - Publish Docker images"
+      - "Weekly Release - Combined release flow"
+      - "Weekly Release - Branch off weekly branch"
+      - "Weekly Release - Tag weekly RC"
+      - "Weekly Release - Build node release candidate"
+      - "Weekly Release - Build runtimes"
+      - "Weekly Release - Publish draft"
+      - "Weekly Release - Publish Docker Image"
     types:
       - completed
 

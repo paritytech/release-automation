@@ -1,4 +1,4 @@
-name: Srtool build
+name: Weekly Release - Srtool build
 
 env:
   SUBWASM_VERSION: 0.21.0
