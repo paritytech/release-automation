@@ -56,6 +56,12 @@ jobs:
       FINAL_TAG: ${{ needs.validate-inputs.outputs.final_tag }}
 
     steps:
+      - name: Assert the guard ran
+        shell: bash
+        env:
+          GUARD_SHA: ${{ needs.guard.outputs.sha }}
+        run: '[[ "$GUARD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No verified SHA from the release guard"; exit 1; }'
+
       - name: Install pgpkms
         run: |
           pip install git+https://github.com/paritytech-release/pgpkms.git@dc30e487d47f53d069831a4306377a3ec32638ae
