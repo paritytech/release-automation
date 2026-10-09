@@ -1,7 +1,7 @@
 # Tags the next rc on the tip of a stable branch in paritytech/polkadot-sdk.
 #
 # The checkout is pinned to the stable branch derived from `version`
-name: Release - RC tagging automation (stable)
+name: Stable Release - RC tagging automation
 on:
   workflow_dispatch:
     inputs:

@@ -1,4 +1,4 @@
-name: Release - Publish Docker Image (stable)
+name: Stable Release - Publish Docker Image
 
 # This workflow can be triggered manually or called from release-70.
 # It builds and published releases and rc candidates from paritytech/polkadot-sdk,

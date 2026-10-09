@@ -1,4 +1,4 @@
-name: Release - Publish draft (stable)
+name: Stable Release - Publish draft
 
 # This workflow creates a full release draft in paritytech/polkadot-sdk with:
 # - release notes

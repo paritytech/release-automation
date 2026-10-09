@@ -28,7 +28,7 @@
 #             ref: ${{ needs.guard.outputs.sha }}   # never inputs.release_tag
 #
 
-name: Release - Guard
+name: Stable Release - Guard
 
 on:
   workflow_call:

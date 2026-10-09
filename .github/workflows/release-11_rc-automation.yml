@@ -1,4 +1,4 @@
-name: Release - Tag weekly RC
+name: Weekly Release - Tag weekly RC
 on:
   workflow_dispatch:
     inputs:

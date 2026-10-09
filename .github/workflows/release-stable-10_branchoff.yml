@@ -3,7 +3,7 @@
 # as the branch-off happens only ones per quarter and a tagging activity done more frequently for each new RC during the release process.
 #
 # The stable branch is created in and pushed to paritytech/polkadot-sdk, which is checked out at the workspace root.
-name: Release - Branch off stable branch and/or tag rc (stable)
+name: Stable Release - Branch off stable branch and/or tag rc
 
 on:
   workflow_dispatch:
