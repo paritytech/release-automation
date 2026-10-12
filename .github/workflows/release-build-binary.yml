@@ -1,4 +1,4 @@
-name: Binary Build
+name: Weekly Release - Binary Build
 # This workflow can be used to build a binary like polkadot + workers, omninode or polkadot-parachain
 # from any branch with release or profuction profile to be later used for testing.
 # ⚠️ It should not be used for the production release purposes!

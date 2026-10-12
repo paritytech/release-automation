@@ -1,4 +1,4 @@
-name: Release - Branch off weekly branch
+name: Weekly Release - Branch off weekly branch
 
 on:
   workflow_dispatch:
