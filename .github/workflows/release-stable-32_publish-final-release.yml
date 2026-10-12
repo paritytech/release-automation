@@ -15,8 +15,8 @@ on:
         default: true
         type: boolean
       mark_latest:
-        description: Mark as Latest on GitHub (turn off for a patch to an older stable line)
-        default: true
+        description: Mark as Latest on GitHub (only for the newest stable release)
+        default: false
         type: boolean
 
 jobs:
