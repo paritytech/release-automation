@@ -1,4 +1,4 @@
-name: Release - Combined Builds Flow (stable)
+name: Stable Release - Combined Builds Flow
 
 on:
   workflow_dispatch:

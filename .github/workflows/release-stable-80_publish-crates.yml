@@ -4,7 +4,7 @@
 # Crates are released from the stable branch rather than a tag, so release-guard
 # (which verifies tags) does not apply; the job is gated by the killswitch below
 # and by the `release` environment's required reviewers.
-name: Release - Publish Crates (stable)
+name: Stable Release - Publish Crates
 
 on:
   workflow_dispatch:

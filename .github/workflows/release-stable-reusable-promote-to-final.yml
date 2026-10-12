@@ -1,6 +1,6 @@
 # Copies rc artifacts to their final location on S3, using helpers from
 # paritytech/polkadot-sdk checked out at the SHA verified by release-guard.
-name: Promote rc to final (stable)
+name: Stable Release - Promote rc to final
 
 on:
   workflow_call:

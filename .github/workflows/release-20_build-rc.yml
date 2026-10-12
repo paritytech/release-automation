@@ -1,4 +1,4 @@
-name: Release - Build node release candidate
+name: Weekly Release - Build node release candidate
 
 on:
   workflow_dispatch:

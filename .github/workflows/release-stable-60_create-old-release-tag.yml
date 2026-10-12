@@ -1,4 +1,4 @@
-name: Release - Create polkadot-vX.YY.Z tag (stable)
+name: Stable Release - Create polkadot-vX.YY.Z tag
 # This workflow creates a final release tag in the old format (e.g. polkadot-v1.20.0) for a published release.
 #
 # Releases are published in paritytech/polkadot-sdk, so the `release: published`

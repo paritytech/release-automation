@@ -1,4 +1,4 @@
-name: Release - Build runtimes
+name: Weekly Release - Build runtimes
 
 on:
   workflow_dispatch:

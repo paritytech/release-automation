@@ -1,4 +1,4 @@
-name: Release - Publish draft
+name: Weekly Release - Publish draft
 
 # This workflow runs in paritytech-release and creates full release draft with:
 # - release notes

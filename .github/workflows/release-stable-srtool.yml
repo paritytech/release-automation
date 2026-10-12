@@ -1,7 +1,7 @@
 # Deterministic runtime builds of paritytech/polkadot-sdk, checked out at the
 # SHA verified by release-guard. Callers must pass the guard's `sha` output.
 
-name: Srtool build (stable)
+name: Stable Release - Srtool build
 
 env:
   SUBWASM_VERSION: 0.21.0
