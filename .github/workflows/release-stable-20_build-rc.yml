@@ -1,4 +1,4 @@
-name: Release - Build node release candidate (stable)
+name: Stable Release - Build node release candidate
 
 on:
   workflow_dispatch:

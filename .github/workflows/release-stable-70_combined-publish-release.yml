@@ -1,4 +1,4 @@
-name: Release - Combined Publish Release (stable)
+name: Stable Release - Combined Publish Release
 
 # This workflow orchestrates the final release steps by calling workflows in sequence:
 # 1. Promote RC to final on S3

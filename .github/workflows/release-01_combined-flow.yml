@@ -1,4 +1,4 @@
-name: Release - Combined release flow
+name: Weekly Release - Combined release flow
 
 on:
   schedule:
