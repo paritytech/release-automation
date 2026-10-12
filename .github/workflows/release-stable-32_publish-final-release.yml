@@ -14,6 +14,10 @@ on:
         description: Also create the legacy polkadot-vX.Y.Z tag
         default: true
         type: boolean
+      mark_latest:
+        description: Mark as Latest on GitHub (turn off for a patch to an older stable line)
+        default: true
+        type: boolean
 
 jobs:
   guard:
@@ -121,6 +125,7 @@ jobs:
       - name: Publish the draft under the final tag
         env:
           GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
+          MARK_LATEST: ${{ inputs.mark_latest }}
         run: |
           # The tag exists now, so GitHub attaches to it instead of making one.
           gh release edit "$RC_TAG" \
@@ -128,7 +133,7 @@ jobs:
             --tag "$FINAL_TAG" \
             --title "Polkadot $FINAL_TAG" \
             --draft=false \
-            --latest
+            --latest="$MARK_LATEST"
 
   create-old-release-tag:
     if: ${{ inputs.create_old_release_tag }}
