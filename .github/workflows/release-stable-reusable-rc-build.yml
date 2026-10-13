@@ -81,7 +81,7 @@ jobs:
   build-rc:
     if: ${{ inputs.target == 'x86_64-unknown-linux-gnu' }}
     needs: [set-image]
-    runs-on: ubuntu-latest-m
+    runs-on: parity-large
     environment: ${{ !inputs.dry_run && 'release' || '' }}
     container:
       image: ${{ needs.set-image.outputs.IMAGE }}
