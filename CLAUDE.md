@@ -4,16 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Release automation for the Polkadot SDK weekly release pipeline. This repo contains GitHub Actions workflows and shell scripts that orchestrate building, signing, and publishing releases for the `paritytech/polkadot-sdk` repository. There is no application code to build or test locally — everything runs as GitHub Actions.
+Release automation for the Polkadot SDK weekly and stable release pipelines. This repo contains the GitHub Actions workflows that orchestrate building, signing and publishing releases for `paritytech/polkadot-sdk`. There is no application code to build or test locally — everything runs as GitHub Actions, and the build logic lives in polkadot-sdk, which every job checks out.
 
 ## Repository Structure
 
-- `.github/workflows/` — GitHub Actions workflow files (numbered by stage)
-- `.github/scripts/common/lib.sh` — Shared utility functions (version parsing, git ops, GitHub API, GPG, S3)
-- `.github/scripts/release/release_lib.sh` — Release-specific functions (version bumping, spec version, prdoc reorg)
-- `.github/scripts/release/build-linux-release.sh` — Linux binary build script
-- `.github/scripts/release/build-macos-release.sh` — macOS binary build script
-- `.github/scripts/release/build-deb.sh` — Debian package build script
+- `.github/workflows/` — GitHub Actions workflow files (numbered by stage); `release-*` weekly, `release-stable-*` stable
+- `.github/scripts/pipeline-lib.sh` — the helpers specific to this repo (weekly version and tag handling)
+- `.github/scripts/guard/` — tag verification for `release-guard.yml`, plus its tests
+
+Everything else — `lib.sh`, `release_lib.sh` and the build scripts — comes from the polkadot-sdk checkout, which
+is the source of truth. A CI check fails the build if copies reappear here.
 
 ## Workflow Pipeline Architecture
 
@@ -34,6 +34,10 @@ release-reusable-s3-upload.yml  (S3 artifact upload, used by build stages)
 ```
 
 Dependencies flow top-to-bottom: branch creation → RC tagging → builds (binaries + runtimes in parallel) → Docker images.
+
+The stable pipeline mirrors this as `release-stable-*`, with `release-stable-22` for the combined builds and draft,
+`release-stable-70` for promoting to final plus deb, RPM and Docker, and `release-stable-32` to sign the final tag
+and publish the draft. Both pipelines start with `release-guard.yml`.
 
 ## Version Scheme
 
@@ -62,7 +66,7 @@ westend, asset-hub-westend, bridge-hub-westend, collectives-westend, coretime-we
 
 ## Shell Script Conventions
 
-- Scripts are sourced with `. ./.github/scripts/common/lib.sh`
+- Scripts are sourced with `. ./.github/scripts/common/lib.sh`, which resolves into the polkadot-sdk checkout at the workspace root
 - Functions use positional arguments (`$1`, `$2`) with comments documenting expected inputs
 - GitHub API calls use `$GITHUB_RELEASE_TOKEN` or `$GITHUB_PR_TOKEN`
 - S3 URLs follow pattern: `https://releases.parity.io/<binary>/<version>/<target>/<artifact>`
