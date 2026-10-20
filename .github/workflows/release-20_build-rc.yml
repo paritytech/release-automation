@@ -204,6 +204,20 @@ jobs:
       attestations: write
       contents: read
 
+  build-frame-omni-bencher-linux-arm64-binary:
+    needs: [validate-inputs]
+    if: ${{ inputs.binary == 'frame-omni-bencher' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-reusable-rc-build.yml"
+    with:
+      binary: '["frame-omni-bencher"]'
+      package: frame-omni-bencher
+      weekly_release_tag: ${{ needs.validate-inputs.outputs.weekly_release_tag }}
+      target: aarch64-unknown-linux-gnu
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
   build-chain-spec-builder-linux-arm64-binary:
     needs: [validate-inputs]
     if: ${{ inputs.binary == 'chain-spec-builder' || inputs.binary == 'all' }}
@@ -218,6 +232,20 @@ jobs:
       attestations: write
       contents: read
 
+  build-substrate-node-linux-arm64-binary:
+    needs: [validate-inputs]
+    if: ${{ inputs.binary == 'substrate-node' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-reusable-rc-build.yml"
+    with:
+      binary: '["substrate-node"]'
+      package: staging-node-cli
+      weekly_release_tag: ${{ needs.validate-inputs.outputs.weekly_release_tag }}
+      target: aarch64-unknown-linux-gnu
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
   build-eth-rpc-linux-arm64-binary:
     needs: [validate-inputs]
     if: ${{ inputs.binary == 'eth-rpc' || inputs.binary == 'all' }}
@@ -225,6 +253,20 @@ jobs:
     with:
       binary: '["eth-rpc"]'
       package: pallet-revive-eth-rpc
+      weekly_release_tag: ${{ needs.validate-inputs.outputs.weekly_release_tag }}
+      target: aarch64-unknown-linux-gnu
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+  build-subkey-linux-arm64-binary:
+    needs: [validate-inputs]
+    if: ${{ inputs.binary == 'subkey' || inputs.binary == 'all' }}
+    uses: "./.github/workflows/release-reusable-rc-build.yml"
+    with:
+      binary: '["subkey"]'
+      package: subkey
       weekly_release_tag: ${{ needs.validate-inputs.outputs.weekly_release_tag }}
       target: aarch64-unknown-linux-gnu
     permissions:

@@ -69,13 +69,20 @@ jobs:
           FINAL_TAG="$(echo ${INPUT_RELEASE_TAG} | sed 's/-rc[0-9]*$//')"
           echo "final_tag=${FINAL_TAG}" >> $GITHUB_OUTPUT
 
+  # The targets to promote: linux arm64 is only built where the commit supports it.
+  arm64-support:
+    needs: [ guard ]
+    uses: ./.github/workflows/release-stable-reusable-arm64-support.yml
+    with:
+      sha: ${{ needs.guard.outputs.sha }}
+
   promote-polkadot-rc-to-final:
     if: ${{ inputs.binary == 'polkadot' || inputs.binary == 'all' }}
-    needs: [ guard, validate-inputs ]
+    needs: [ guard, validate-inputs, arm64-support ]
     uses: ./.github/workflows/release-stable-reusable-promote-to-final.yml
     strategy:
       matrix:
-        target: [ x86_64-unknown-linux-gnu, aarch64-apple-darwin ]
+        target: ${{ fromJSON(needs.arm64-support.outputs.release_targets) }}
     with:
       package: polkadot
       release_tag: ${{ needs.validate-inputs.outputs.release_tag }}
@@ -88,11 +95,11 @@ jobs:
 
   promote-polkadot-parachain-rc-to-final:
     if: ${{ inputs.binary == 'polkadot-parachain' || inputs.binary == 'all' }}
-    needs: [ guard, validate-inputs ]
+    needs: [ guard, validate-inputs, arm64-support ]
     uses: ./.github/workflows/release-stable-reusable-promote-to-final.yml
     strategy:
       matrix:
-        target: [ x86_64-unknown-linux-gnu, aarch64-apple-darwin ]
+        target: ${{ fromJSON(needs.arm64-support.outputs.release_targets) }}
     with:
       package: polkadot-parachain
       release_tag: ${{ needs.validate-inputs.outputs.release_tag }}
@@ -105,11 +112,11 @@ jobs:
 
   promote-polkadot-omni-node-rc-to-final:
     if: ${{ inputs.binary == 'polkadot-omni-node' || inputs.binary == 'all' }}
-    needs: [ guard, validate-inputs ]
+    needs: [ guard, validate-inputs, arm64-support ]
     uses: ./.github/workflows/release-stable-reusable-promote-to-final.yml
     strategy:
       matrix:
-        target: [ x86_64-unknown-linux-gnu, aarch64-apple-darwin ]
+        target: ${{ fromJSON(needs.arm64-support.outputs.release_targets) }}
     with:
       package: polkadot-omni-node
       release_tag: ${{ needs.validate-inputs.outputs.release_tag }}
@@ -122,11 +129,11 @@ jobs:
 
   promote-frame-omni-bencher-rc-to-final:
     if: ${{ inputs.binary == 'frame-omni-bencher' || inputs.binary == 'all' }}
-    needs: [ guard, validate-inputs ]
+    needs: [ guard, validate-inputs, arm64-support ]
     uses: ./.github/workflows/release-stable-reusable-promote-to-final.yml
     strategy:
       matrix:
-        target: [ x86_64-unknown-linux-gnu, aarch64-apple-darwin ]
+        target: ${{ fromJSON(needs.arm64-support.outputs.release_targets) }}
     with:
       package: frame-omni-bencher
       release_tag: ${{ needs.validate-inputs.outputs.release_tag }}
@@ -139,11 +146,11 @@ jobs:
 
   promote-chain-spec-builder-rc-to-final:
     if: ${{ inputs.binary == 'chain-spec-builder' || inputs.binary == 'all' }}
-    needs: [ guard, validate-inputs ]
+    needs: [ guard, validate-inputs, arm64-support ]
     uses: ./.github/workflows/release-stable-reusable-promote-to-final.yml
     strategy:
       matrix:
-        target: [ x86_64-unknown-linux-gnu, aarch64-apple-darwin ]
+        target: ${{ fromJSON(needs.arm64-support.outputs.release_targets) }}
     with:
       package: chain-spec-builder
       release_tag: ${{ needs.validate-inputs.outputs.release_tag }}
@@ -156,11 +163,11 @@ jobs:
 
   promote-eth-rpc-rc-to-final:
     if: ${{ inputs.binary == 'eth-rpc' || inputs.binary == 'all' }}
-    needs: [ guard, validate-inputs ]
+    needs: [ guard, validate-inputs, arm64-support ]
     uses: ./.github/workflows/release-stable-reusable-promote-to-final.yml
     strategy:
       matrix:
-        target: [ x86_64-unknown-linux-gnu, aarch64-apple-darwin ]
+        target: ${{ fromJSON(needs.arm64-support.outputs.release_targets) }}
     with:
       package: eth-rpc
       release_tag: ${{ needs.validate-inputs.outputs.release_tag }}

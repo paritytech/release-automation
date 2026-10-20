@@ -1,0 +1,74 @@
+# Decides whether a stable release ships linux arm64 artifacts. The arm64
+# binaries are cross-built by polkadot-sdk's build-linux-release.sh, which only
+# supports that from the commit that added it (polkadot-sdk#13416) onwards. Stable
+# branches cut before it keep releasing amd64 only.
+#
+# Every stage asks this rather than probing for arm64 artifacts: a stage that
+# expects them fails when they are missing, instead of quietly skipping them.
+name: Stable Release - Check arm64 support
+
+on:
+  workflow_call:
+    inputs:
+      sha:
+        description: Commit SHA verified by release-guard
+        required: true
+        type: string
+    outputs:
+      supported:
+        description: "'true' when the commit can cross-build aarch64-unknown-linux-gnu binaries"
+        value: ${{ jobs.check.outputs.supported }}
+      release_targets:
+        description: JSON list of the targets binaries are released for
+        value: ${{ jobs.check.outputs.release_targets }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      supported: ${{ steps.check.outputs.supported }}
+      release_targets: ${{ steps.check.outputs.release_targets }}
+    steps:
+      - name: Assert the guard ran
+        shell: bash
+        env:
+          GUARD_SHA: ${{ inputs.sha }}
+        run: '[[ "$GUARD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No verified SHA from the release guard"; exit 1; }'
+
+      - name: Checkout polkadot-sdk build scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: paritytech/polkadot-sdk
+          ref: ${{ inputs.sha }}
+          sparse-checkout: .github/scripts/release
+
+      - name: Check arm64 support
+        id: check
+        shell: bash
+        env:
+          GUARD_SHA: ${{ inputs.sha }}
+        run: |
+          script=.github/scripts/release/build-linux-release.sh
+
+          # The script lists the cross targets it can build as cases of $TARGET.
+          if grep -q 'aarch64-unknown-linux-gnu)' "$script"; then
+            echo "supported=true" >> $GITHUB_OUTPUT
+            echo 'release_targets=["x86_64-unknown-linux-gnu","aarch64-unknown-linux-gnu","aarch64-apple-darwin"]' >> $GITHUB_OUTPUT
+            echo "Linux arm64 artifacts are built for this release"
+            exit 0
+          fi
+
+          echo "supported=false" >> $GITHUB_OUTPUT
+          echo 'release_targets=["x86_64-unknown-linux-gnu","aarch64-apple-darwin"]' >> $GITHUB_OUTPUT
+
+          # A script that passes --target to cargo can cross-build, so not finding the
+          # aarch64 case there most likely means it was rewritten and this check no
+          # longer matches it. That turns arm64 off for the release, so say it loudly.
+          if grep -q -- '--target' "$script"; then
+            echo "::warning::${script} at ${GUARD_SHA} cross-builds, but not in a form release-stable-reusable-arm64-support.yml recognises. This release ships no linux arm64 artifacts; update the check if the script can build aarch64-unknown-linux-gnu."
+          else
+            echo "::notice::${script} at ${GUARD_SHA} cannot cross-build aarch64-unknown-linux-gnu, this release ships no linux arm64 artifacts"
+          fi

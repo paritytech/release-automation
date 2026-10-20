@@ -257,6 +257,7 @@ jobs:
           driver: docker
 
       - name: Resolve image platforms
+        shell: bash
         env:
           BINARY: ${{ matrix.binary }}
         run: |

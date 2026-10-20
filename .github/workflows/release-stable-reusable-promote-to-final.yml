@@ -57,7 +57,39 @@ jobs:
           repository: paritytech/polkadot-sdk
           ref: ${{ inputs.sha }}
 
+      # The commit being able to cross-build does not mean this rc was built with
+      # arm64: it may predate arm64 support in the pipeline, or its arm64 builds may
+      # have failed. Only what the rc actually has on S3 is promoted.
+      - name: Check the rc has ${{ inputs.target }} artifacts
+        id: present
+        run: |
+          . ./.github/scripts/common/lib.sh
+
+          if [[ "$TARGET" != "aarch64-unknown-linux-gnu" ]]; then
+            echo "promote=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if [[ "$PACKAGE" == 'polkadot' ]]; then
+            packages=(polkadot polkadot-prepare-worker polkadot-execute-worker)
+          else
+            packages=("$PACKAGE")
+          fi
+          missing=()
+          for package in "${packages[@]}"; do
+            url="$(get_s3_url_base "$package")/${RELEASE_TAG}/${TARGET}/${package}.sha256"
+            curl -fsI "$url" > /dev/null || missing+=("$package")
+          done
+
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "::warning::${RELEASE_TAG} has no ${TARGET} artifacts for: ${missing[*]}. ${PACKAGE} is promoted without them."
+            echo "promote=false" >> $GITHUB_OUTPUT
+          else
+            echo "promote=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Fetch binaries from s3 based on version
+        if: ${{ steps.present.outputs.promote == 'true' }}
         run: |
           . ./.github/scripts/common/lib.sh
 
@@ -70,13 +102,33 @@ jobs:
             done
             NODE_VERSION="$(get_polkadot_node_version_from_code)"
 
-            fetch_debian_package_from_s3 polkadot
-            fetch_rpm_package_from_s3 polkadot
+            # The packages are amd64; they must not end up under the arm64 path.
+            if [[ "$TARGET" != "aarch64-unknown-linux-gnu" ]]; then
+              fetch_debian_package_from_s3 polkadot
+              fetch_rpm_package_from_s3 polkadot
+            fi
           else
             fetch_release_artifacts_from_s3 "$PACKAGE" "$TARGET"
           fi
 
+      - name: Check sha256 of the fetched binaries
+        if: ${{ steps.present.outputs.promote == 'true' }}
+        run: |
+          . ./.github/scripts/common/lib.sh
+
+          # The fetch keeps going when a file is missing and saves the S3 error page
+          # in its place, which must not be promoted as the binary.
+          if [[ "$PACKAGE" == 'polkadot' ]]; then
+            packages=(polkadot polkadot-prepare-worker polkadot-execute-worker)
+          else
+            packages=("$PACKAGE")
+          fi
+          for package in "${packages[@]}"; do
+            (cd "./release-artifacts/$TARGET/${package}" && check_sha256 "$package")
+          done
+
       - name: Configure AWS Credentials
+        if: ${{ steps.present.outputs.promote == 'true' }}
         uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
         with:
           aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
@@ -84,6 +136,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Upload ${{ inputs.package }} ${{ inputs.target }} artifacts to s3
+        if: ${{ steps.present.outputs.promote == 'true' }}
         run: |
           . ./.github/scripts/release/release_lib.sh
 
