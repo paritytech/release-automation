@@ -141,7 +141,7 @@ jobs:
           git push origin "$STABLE_BRANCH_NAME"
 
   tag-rc:
-    if: ${{ !inputs.is_new_stable && inputs.tag_rc }}
+    if: ${{ !cancelled() && !failure() && inputs.tag_rc }}
     needs: [ validate-inputs, create-stable-branch ]
     uses: ./.github/workflows/release-stable-11_rc-automation.yml
     with:
