@@ -79,7 +79,7 @@ jobs:
         run: cat .github/env >> $GITHUB_OUTPUT
 
   build-rc:
-    if: ${{ inputs.target == 'x86_64-unknown-linux-gnu' }}
+    if: ${{ inputs.target == 'x86_64-unknown-linux-gnu' || inputs.target == 'aarch64-unknown-linux-gnu' }}
     needs: [set-image]
     runs-on: parity-large
     environment: ${{ !inputs.dry_run && 'release' || '' }}
@@ -124,6 +124,28 @@ jobs:
 
           import_gpg_keys
 
+      # Only reached for commits whose build-linux-release.sh can cross-build, see
+      # release-stable-reusable-arm64-support.yml. The script reads TARGET.
+      - name: Install aarch64 cross toolchain
+        if: ${{ inputs.target == 'aarch64-unknown-linux-gnu' }}
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross qemu-user-static
+          rustup target add aarch64-unknown-linux-gnu
+
+          # Target-scoped so build scripts and proc macros keep compiling for the host.
+          # The bindgen include path is for librocksdb-sys, which parses the C headers
+          # of the target sysroot.
+          {
+            echo "TARGET=aarch64-unknown-linux-gnu"
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc"
+            echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc"
+            echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++"
+            echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar"
+            echo "BINDGEN_EXTRA_CLANG_ARGS_aarch64_unknown_linux_gnu=-I/usr/aarch64-linux-gnu/include"
+          } >> $GITHUB_ENV
+
       - name: Build binary
         env:
           BINARY_NAME: ${{ matrix.binaries }}
@@ -132,6 +154,24 @@ jobs:
         run: |
           git config --global --add safe.directory "${GITHUB_WORKSPACE}" #avoid "detected dubious ownership" error
           ./.github/scripts/release/build-linux-release.sh "$BINARY_NAME" "$INPUT_PACKAGE" "$INPUT_FEATURES"
+
+      - name: Check architecture of ${{ matrix.binaries }}
+        env:
+          BINARY_PATH: /artifacts/${{ matrix.binaries }}/${{ matrix.binaries }}
+          TARGET_TRIPLE: ${{ inputs.target }}
+        shell: bash
+        run: |
+          # e_machine: the 16-bit little-endian field at offset 18 of the ELF header
+          case "$TARGET_TRIPLE" in
+            x86_64-unknown-linux-gnu) expected=62 ;;
+            aarch64-unknown-linux-gnu) expected=183 ;;
+          esac
+          machine=$(od -An -t u2 -j 18 -N 2 "$BINARY_PATH" | tr -d ' ')
+          if [[ "$machine" != "$expected" ]]; then
+            echo "::error::$BINARY_PATH has ELF machine $machine, expected $expected for $TARGET_TRIPLE"
+            exit 1
+          fi
+          echo "$BINARY_PATH is built for $TARGET_TRIPLE"
 
       - name: Generate artifact attestation
         if: ${{ !inputs.dry_run }}
@@ -478,8 +518,24 @@ jobs:
       target: ${{ inputs.target }}
     secrets: inherit
 
+  # There is no arm64 deb/rpm to bundle the binaries into, so, as on macOS, each
+  # one is uploaded from its own build artifact.
+  upload-polkadot-linux-arm64-artifacts-to-s3:
+    if: ${{ !inputs.dry_run && inputs.package == 'polkadot' && inputs.target == 'aarch64-unknown-linux-gnu' }}
+    needs: [build-rc]
+    strategy:
+      matrix:
+        package: [ polkadot, polkadot-prepare-worker, polkadot-execute-worker ]
+    uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
+    with:
+      package: ${{ matrix.package }}
+      release_tag: ${{ inputs.release_tag }}
+      sha: ${{ inputs.sha }}
+      target: ${{ inputs.target }}
+    secrets: inherit
+
   upload-polkadot-parachain-artifacts-to-s3:
-    if: ${{ !inputs.dry_run && inputs.package == 'polkadot-parachain-bin' && inputs.target == 'x86_64-unknown-linux-gnu' }}
+    if: ${{ !inputs.dry_run && inputs.package == 'polkadot-parachain-bin' && (inputs.target == 'x86_64-unknown-linux-gnu' || inputs.target == 'aarch64-unknown-linux-gnu') }}
     needs: [build-rc]
     uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
     with:
@@ -490,7 +546,7 @@ jobs:
     secrets: inherit
 
   upload-polkadot-omni-node-artifacts-to-s3:
-    if: ${{ !inputs.dry_run && inputs.package == 'polkadot-omni-node' && inputs.target == 'x86_64-unknown-linux-gnu' }}
+    if: ${{ !inputs.dry_run && inputs.package == 'polkadot-omni-node' && (inputs.target == 'x86_64-unknown-linux-gnu' || inputs.target == 'aarch64-unknown-linux-gnu') }}
     needs: [build-rc]
     uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
     with:
@@ -501,7 +557,7 @@ jobs:
     secrets: inherit
 
   upload-frame-omni-bencher-artifacts-to-s3:
-    if: ${{ !inputs.dry_run && inputs.package == 'frame-omni-bencher' && inputs.target == 'x86_64-unknown-linux-gnu' }}
+    if: ${{ !inputs.dry_run && inputs.package == 'frame-omni-bencher' && (inputs.target == 'x86_64-unknown-linux-gnu' || inputs.target == 'aarch64-unknown-linux-gnu') }}
     needs: [build-rc]
     uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
     with:
@@ -512,7 +568,7 @@ jobs:
     secrets: inherit
 
   upload-chain-spec-builder-artifacts-to-s3:
-    if: ${{ !inputs.dry_run && inputs.package == 'staging-chain-spec-builder' && inputs.target == 'x86_64-unknown-linux-gnu' }}
+    if: ${{ !inputs.dry_run && inputs.package == 'staging-chain-spec-builder' && (inputs.target == 'x86_64-unknown-linux-gnu' || inputs.target == 'aarch64-unknown-linux-gnu') }}
     needs: [build-rc]
     uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
     with:
@@ -523,7 +579,7 @@ jobs:
     secrets: inherit
 
   upload-substrate-node-artifacts-to-s3:
-    if: ${{ !inputs.dry_run && inputs.package == 'staging-node-cli' && inputs.target == 'x86_64-unknown-linux-gnu' }}
+    if: ${{ !inputs.dry_run && inputs.package == 'staging-node-cli' && (inputs.target == 'x86_64-unknown-linux-gnu' || inputs.target == 'aarch64-unknown-linux-gnu') }}
     needs: [build-rc]
     uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
     with:
@@ -534,7 +590,7 @@ jobs:
     secrets: inherit
 
   upload-eth-rpc-artifacts-to-s3:
-    if: ${{ !inputs.dry_run && inputs.package == 'pallet-revive-eth-rpc' && inputs.target == 'x86_64-unknown-linux-gnu' }}
+    if: ${{ !inputs.dry_run && inputs.package == 'pallet-revive-eth-rpc' && (inputs.target == 'x86_64-unknown-linux-gnu' || inputs.target == 'aarch64-unknown-linux-gnu') }}
     needs: [build-rc]
     uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
     with:
@@ -545,7 +601,7 @@ jobs:
     secrets: inherit
 
   upload-subkey-artifacts-to-s3:
-    if: ${{ !inputs.dry_run && inputs.package == 'subkey' && inputs.target == 'x86_64-unknown-linux-gnu' }}
+    if: ${{ !inputs.dry_run && inputs.package == 'subkey' && (inputs.target == 'x86_64-unknown-linux-gnu' || inputs.target == 'aarch64-unknown-linux-gnu') }}
     needs: [build-rc]
     uses: ./.github/workflows/release-stable-reusable-s3-upload.yml
     with:

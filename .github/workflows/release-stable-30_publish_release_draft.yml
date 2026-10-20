@@ -287,16 +287,23 @@ jobs:
           gh release upload "$VALIDATED_RELEASE_TAG" \
             --repo paritytech/polkadot-sdk "$VERSIONED_ASSET"
 
+  # The targets to attach: linux arm64 is only built where the commit supports it.
+  arm64-support:
+    needs: [ guard ]
+    uses: ./.github/workflows/release-stable-reusable-arm64-support.yml
+    with:
+      sha: ${{ needs.guard.outputs.sha }}
+
   publish-release-artifacts:
     if: ${{ inputs.crates_only == false }}
-    needs: [ guard, publish-release-draft ]
+    needs: [ guard, publish-release-draft, arm64-support ]
     environment: release
     continue-on-error: true
     runs-on: ubuntu-latest
     strategy:
       matrix:
         binary: [ polkadot, polkadot-execute-worker, polkadot-prepare-worker, polkadot-parachain, polkadot-omni-node, frame-omni-bencher, chain-spec-builder, eth-rpc ]
-        target: [ x86_64-unknown-linux-gnu, aarch64-apple-darwin ]
+        target: ${{ fromJSON(needs.arm64-support.outputs.release_targets) }}
 
     steps:
       - name: Assert the guard ran
@@ -311,7 +318,28 @@ jobs:
           repository: paritytech/polkadot-sdk
           ref: ${{ needs.guard.outputs.sha }}
 
+      # The commit being able to cross-build does not mean this rc was built with
+      # arm64: it may predate arm64 support in the pipeline, or its arm64 builds may
+      # have failed. Only what the rc actually has on S3 is attached.
+      - name: Check the rc has a ${{ matrix.target }} ${{ matrix.binary }}
+        id: present
+        env:
+          VERSION: ${{ inputs.release_tag }}
+          BINARY: ${{ matrix.binary }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          . ./.github/scripts/common/lib.sh
+
+          if [[ "$TARGET" == "aarch64-unknown-linux-gnu" ]] \
+            && ! curl -fsI "$(get_s3_url_base "$BINARY")/${VERSION}/${TARGET}/${BINARY}.sha256" > /dev/null; then
+            echo "::warning::${VERSION} has no ${TARGET} ${BINARY}, the draft is published without it."
+            echo "attach=false" >> $GITHUB_OUTPUT
+          else
+            echo "attach=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Fetch binaries from s3 based on version
+        if: ${{ steps.present.outputs.attach == 'true' }}
         env:
           VERSION: ${{ inputs.release_tag }}
           BINARY: ${{ matrix.binary }}
@@ -321,19 +349,31 @@ jobs:
 
           fetch_release_artifacts_from_s3 "$BINARY" "$TARGET"
 
-      - name: Rename aarch64-apple-darwin binaries
-        if: ${{ matrix.target == 'aarch64-apple-darwin' }}
+      - name: Check sha256 of ${{ matrix.binary }}
+        if: ${{ steps.present.outputs.attach == 'true' }}
         working-directory: ${{ github.workspace}}/release-artifacts/${{ matrix.target }}/${{ matrix.binary }}
         env:
           BINARY: ${{ matrix.binary }}
         run: |
           . ../../../.github/scripts/common/lib.sh
 
-          mv "$BINARY" "${BINARY}-aarch64-apple-darwin"
-          mv "${BINARY}.asc" "${BINARY}-aarch64-apple-darwin.asc"
+          # The checksum written at build time is what proves the download is intact;
+          # the fetch saves an S3 error page in place of a missing file. A mismatch
+          # fails the job rather than attaching the file.
+          check_sha256 "$BINARY"
 
-          sha256sum "${BINARY}-aarch64-apple-darwin" | tee "${BINARY}-aarch64-apple-darwin.sha256"
-          check_sha256 "${BINARY}-aarch64-apple-darwin" && echo "OK" || echo "ERR"
+      - name: Rename ${{ matrix.target }} binaries
+        # The x86_64 linux asset keeps the bare binary name; every other target is
+        # suffixed with its triple so the assets do not collide on the release page.
+        if: ${{ steps.present.outputs.attach == 'true' && matrix.target != 'x86_64-unknown-linux-gnu' }}
+        working-directory: ${{ github.workspace}}/release-artifacts/${{ matrix.target }}/${{ matrix.binary }}
+        env:
+          BINARY: ${{ matrix.binary }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          mv "$BINARY" "${BINARY}-${TARGET}"
+          mv "${BINARY}.asc" "${BINARY}-${TARGET}.asc"
+          sha256sum "${BINARY}-${TARGET}" | tee "${BINARY}-${TARGET}.sha256"
 
       - name: Generate content write token for the release automation
         id: generate_write_token
@@ -345,6 +385,7 @@ jobs:
             repositories: polkadot-sdk
 
       - name: Upload ${{ matrix.binary }} binary to release draft
+        if: ${{ steps.present.outputs.attach == 'true' }}
         env:
           GITHUB_TOKEN: ${{ steps.generate_write_token.outputs.token }}
           BINARY: ${{ matrix.binary }}
@@ -352,12 +393,12 @@ jobs:
           VALIDATED_RELEASE_TAG: ${{ inputs.release_tag }}
         working-directory: ${{ github.workspace}}/release-artifacts/${{ matrix.target }}/${{ matrix.binary }}
         run: |
-          if [[ "$TARGET" == "aarch64-apple-darwin" ]]; then
+          if [[ "$TARGET" != "x86_64-unknown-linux-gnu" ]]; then
             gh release upload "$VALIDATED_RELEASE_TAG" \
               --repo paritytech/polkadot-sdk \
-              "${BINARY}-aarch64-apple-darwin" \
-              "${BINARY}-aarch64-apple-darwin.asc" \
-              "${BINARY}-aarch64-apple-darwin.sha256"
+              "${BINARY}-${TARGET}" \
+              "${BINARY}-${TARGET}.asc" \
+              "${BINARY}-${TARGET}.sha256"
           else
             gh release upload "$VALIDATED_RELEASE_TAG" \
               --repo paritytech/polkadot-sdk \
