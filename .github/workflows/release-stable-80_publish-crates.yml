@@ -1,4 +1,4 @@
-# Publishes crates from the tip of a stable branch of paritytech/polkadot-sdk and
+# Publishes crates from the tip of a stable or unstable branch of paritytech/polkadot-sdk and
 # pushes the resulting `post-crates-release-<release_name>` branch back to it.
 #
 # Crates are released from the stable branch rather than a tag, so release-guard
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       release_name:
-        description: 'Release name (e.g., stable2509-3). Base branch is derived by removing the last -N suffix.'
+        description: 'Release name (e.g., stable2509-3 or unstable2604). Base branch is derived by removing the last -N suffix.'
         required: true
         type: string
       registry:
@@ -88,8 +88,8 @@ jobs:
         run: |
           echo "Release name: $RELEASE_NAME"
 
-          if [[ ! "$RELEASE_NAME" =~ ^stable[0-9]{4}(-[0-9]+)?$ ]]; then
-            echo "::error::release_name '${RELEASE_NAME}' must be in the format stableYYMM or stableYYMM-X"
+          if [[ ! "$RELEASE_NAME" =~ ^(un)?stable[0-9]{4}(-[0-9]+)?$ ]]; then
+            echo "::error::release_name '${RELEASE_NAME}' must be in the format (un)stableYYMM or (un)stableYYMM-X"
             exit 1
           fi
 
@@ -221,8 +221,15 @@ jobs:
         env:
           STABLE_BRANCH: ${{ needs.validate-inputs.outputs.STABLE_BRANCH }}
         run: |
-          # Extract numeric part from stable branch name (e.g., stable2603 -> 2603)
-          VERSION_PREFIX="${STABLE_BRANCH#stable}"
+          # Extract numeric part from release base branch (e.g., stable2603 -> 2603, unstable2603 -> 2603)
+          case "$STABLE_BRANCH" in
+            stable*)   VERSION_PREFIX="${STABLE_BRANCH#stable}" ;;
+            unstable*) VERSION_PREFIX="${STABLE_BRANCH#unstable}" ;;
+            *)
+              echo "::error::Expected branch to start with 'stable' or 'unstable', got: $STABLE_BRANCH"
+              exit 1
+              ;;
+          esac
           UMBRELLA_VERSION="${VERSION_PREFIX}.0.0"
 
           echo "Setting polkadot-sdk umbrella crate version to ${UMBRELLA_VERSION}"

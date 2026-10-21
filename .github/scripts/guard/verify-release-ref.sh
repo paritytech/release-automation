@@ -20,11 +20,12 @@ set -euo pipefail
 
 readonly UPSTREAM_REPO="paritytech/polkadot-sdk"
 
-# Release tags are always polkadot-stableYYMM, with an optional patch and rc
-# suffix: polkadot-stable2609, polkadot-stable2509-3, polkadot-stable2609-rc2,
-# polkadot-stable2509-10-rc1. The bare `stableYYMM` form is rejected: it is
-# never used for tags, and it is the name of the release branch itself.
-readonly TAG_PATTERN='^polkadot-stable[0-9]{4}(-[0-9]+)?(-rc[0-9]+)?$'
+# Release tags are always polkadot-stableYYMM or polkadot-unstableYYMM, with an
+# optional patch and rc suffix: polkadot-stable2609, polkadot-stable2509-3,
+# polkadot-stable2609-rc2, polkadot-stable2509-10-rc1, polkadot-unstable2604-rc5.
+# The bare `stableYYMM` form is rejected: it is never used for tags, and it is
+# the name of the release branch itself.
+readonly TAG_PATTERN='^polkadot-(un)?stable[0-9]{4}(-[0-9]+)?(-rc[0-9]+)?$'
 
 # Written to stderr so it still reaches the log when called inside $(...).
 fail() {
@@ -96,11 +97,11 @@ reason=$(jq -r '.commit.verification.reason' <<<"$commit_json")
 	fail "Unverified commit" "Commit ${sha} is not a verified signed commit (reason: ${reason})"
 
 # 4. Derive the release branch this tag belongs to.
-stable_branch=$(sed -E 's/^polkadot-(stable[0-9]{4}).*/\1/' <<<"$RELEASE_TAG")
+stable_branch=$(sed -E 's/^polkadot-((un)?stable[0-9]{4}).*/\1/' <<<"$RELEASE_TAG")
 
 # 5. The commit must be reachable from the release branch, and that branch must
 #    be protected. Only the release branch is accepted, every
-#    release tag must come from its stable branch. Accepting master would let
+#    release tag must come from its stable or unstable branch. Accepting master would let
 #    anyone able to push a tag name any merged master commit as a release.
 #
 #    Comparing with the branch as base, a reachable commit reads as 'behind',

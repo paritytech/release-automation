@@ -144,6 +144,10 @@ compare stable2509 identical
 expect_pass "patch release tag at the branch tip passes" polkadot-stable2509-3 stable2509
 
 new_case
+valid_release polkadot-unstable2604-rc5 unstable2604
+expect_pass "unstable rc tag on its protected unstable branch passes" polkadot-unstable2604-rc5 unstable2604
+
+new_case
 annotated_tag polkadot-stable2609-rc1
 commit true valid
 branch stable2609 true
@@ -185,7 +189,8 @@ commit true valid
 expect_halt "missing release branch halts" polkadot-stable7777-rc3 "Release branch not found"
 
 for hostile in 'stable2609; rm -rf /' 'master' 'stable2606' 'polkadot-stable2609-rc' \
-	'polkadot-stable2609-rc2 ' 'refs/tags/polkadot-stable2609-rc2' '../polkadot-stable2609'; do
+	'polkadot-stable2609-rc2 ' 'refs/tags/polkadot-stable2609-rc2' '../polkadot-stable2609' \
+	'unstable2604' 'polkadot-unstable-bulletin-support-v1' 'polkadot-ununstable2604-rc1'; do
 	new_case
 	expect_halt "malformed tag '${hostile}' halts before any API call" "$hostile" "Invalid release tag" true no-api
 done

@@ -1,5 +1,6 @@
 # Gate for every stable release workflow that builds, signs or publishes
-# artifacts. It accepts stable tags only; the weekly pipeline is not covered.
+# artifacts. It accepts stable and unstable tags only; the weekly pipeline is
+# not covered.
 #
 # Replaces paritytech-release/sync-workflows/.../check-synchronization.yml@main.
 
@@ -42,7 +43,7 @@ on:
         description: Verified commit SHA. Use this for every downstream checkout.
         value: ${{ jobs.guard.outputs.sha }}
       stable_branch:
-        description: Release branch derived from the tag, e.g. stable2609.
+        description: Release branch derived from the tag, e.g. stable2609 or unstable2604.
         value: ${{ jobs.guard.outputs.stable_branch }}
 
   # Standalone runs, for testing the guard against a tag without a caller.
