@@ -1,7 +1,7 @@
 # Uploads a build artifact of this run to the release S3 bucket, using the
 # upload helpers from paritytech/polkadot-sdk checked out at the SHA verified by
 # release-guard.
-name: Stable Release - Upload to s3
+name: Stable Release - Reusable Upload to s3
 
 on:
   workflow_call:

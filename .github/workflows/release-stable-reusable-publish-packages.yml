@@ -1,7 +1,7 @@
 # Publishes the polkadot deb/rpm package to the package repos, using helpers from
 # paritytech/polkadot-sdk checked out at the SHA verified by release-guard.
 # Callers run the guard; this workflow only consumes its `sha` output.
-name: Stable Release - Reusable - Publish Package
+name: Stable Release - Reusable Publish Package
 
 on:
   workflow_call:
