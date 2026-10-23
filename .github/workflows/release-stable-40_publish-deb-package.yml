@@ -55,6 +55,8 @@ jobs:
       source_tag: ${{ inputs.source_tag }}
       distribution: ${{ inputs.distribution }}
       package_type: 'deb'
-      aws_repo_base_path: "s3://releases-package-repos"
+      # Staging gets its own repo, so test packages never land in the production
+      # pool. Every other distribution (release, stableYYMM) stays in production.
+      aws_repo_base_path: ${{ inputs.distribution == 'staging' && 's3://staging-package-repos' || 's3://releases-package-repos' }}
       cloudfront_distribution_id: "E36FKEYWDXAZYJ"
     secrets: inherit
