@@ -37,7 +37,12 @@ Dependencies flow top-to-bottom: branch creation → RC tagging → builds (bina
 
 The stable pipeline mirrors this as `release-stable-*`, with `release-stable-22` for the combined builds and draft,
 `release-stable-70` for promoting to final plus deb, RPM and Docker, and `release-stable-32` to sign the final tag
-and publish the draft. Both pipelines start with `release-guard.yml`.
+and publish the draft. The stable flows also release `unstableYYMM` branches; `release-guard.yml` accepts both
+`polkadot-stable*` and `polkadot-unstable*` tags. Both pipelines start with `release-guard.yml`.
+
+Deb and RPM packages for the `release` distribution go to `s3://releases-package-repos` (public, served at
+`releases.parity.io/{deb,rpm}`). Staging goes to `s3://staging-package-repos`, so test packages never land in the
+production repo.
 
 ## Version Scheme
 
@@ -46,11 +51,12 @@ and publish the draft. Both pipelines start with `release-guard.yml`.
 - **RC tags**: `polkadot-weeklyYYYYwNN-rcX` (e.g., `polkadot-weekly2025w7-rc1`)
 - **Spec version**: `MAJOR_0MINOR_000PATCH` (e.g., v1.15.0 → `1_015_000`)
 - **Weekly branches**: `weeklyYYYYwNN` in `paritytech/polkadot-sdk`
+- **Stable/unstable tags**: `polkadot-(un)stableYYMM`, with optional patch `-X` and rc `-rcX` (e.g., `polkadot-stable2509-3-rc1`, `polkadot-unstable2604-rc5`) on branches `(un)stableYYMM`
 
 ## Key Patterns
 
 - All commits and tags are GPG-signed using `pgpkms` (KMS-backed signing)
-- GitHub App tokens are used for fine-grained permissions (via `RELEASE_AUTOMATION_APP_ID` / `RELEASE_AUTOMATION_APP_PRIVATE_KEY`)
+- GitHub App tokens are used for fine-grained permissions (via `vars.RELEASE_AUTOMATION_CLIENT_ID` / `RELEASE_AUTOMATION_APP_PRIVATE_KEY`); the App has contents and pull-requests write on polkadot-sdk
 - Workflows run on Parity's custom runners (`parity-default`, `parity-large`)
 - Build container images are dynamically resolved from polkadot-sdk's `.github/env`
 - Binary builds produce SHA256 checksums and GPG signatures
