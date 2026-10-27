@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Tag matching the actual release candidate with the format polkadot-stableYYMM(-X)-rcX or polkadot-stableYYMM(-X)
+        description: Tag matching the actual release candidate with the format polkadot-(un)stableYYMM(-X)-rcX or polkadot-(un)stableYYMM(-X)
         required: true
         type: string
       build_run_id:
@@ -34,7 +34,7 @@ on:
   workflow_call:
     inputs:
       release_tag:
-        description: Tag matching the actual release candidate with the format polkadot-stableYYMM(-X)-rcY or polkadot-stableYYMM(-X)
+        description: Tag matching the actual release candidate with the format polkadot-(un)stableYYMM(-X)-rcY or polkadot-(un)stableYYMM(-X)
         required: true
         type: string
       build_run_id:
@@ -145,8 +145,10 @@ jobs:
           # repo-wide "latest release", which belongs to a newer line when patching
           # an older stable release and would bake a wrong baseline into the
           # CHANGELOG.md/changelog.json assets.
-          release_key() { # polkadot-stableYYMM[-N] -> sortable number
-            local t="${1#polkadot-}"; t="${t#stable}"; local n=0
+          # An unstable release sorts with the stable line of the same YYMM, so its
+          # baseline is the last stable release before it.
+          release_key() { # polkadot-(un)stableYYMM[-N] -> sortable number
+            local t="${1#polkadot-}"; t="${t#un}"; t="${t#stable}"; local n=0
             if [[ "$t" == *-* ]]; then n="${t#*-}"; t="${t%%-*}"; fi
             echo $(( 10#$t * 1000 + 10#$n ))
           }
@@ -161,10 +163,10 @@ jobs:
             export REF1=$(get_latest_release_tag)
           fi
           echo "REF1: ${REF1}"
-          export VERSION=$(echo "$REF2" | sed -E 's/.*(stable[0-9]{4}(-[0-9]+)?).*$/\1/')
+          export VERSION=$(echo "$REF2" | sed -E 's/^(polkadot-)?((un)?stable[0-9]{4}(-[0-9]+)?).*$/\2/')
           echo "Version: $VERSION"
 
-          export STABLE_VERSION=$(sed -E 's/.*(stable[0-9]{4}).*$/\1/' <<< "$VERSION")
+          export STABLE_VERSION=$(sed -E 's/^((un)?stable[0-9]{4}).*$/\1/' <<< "$VERSION")
           export NODE_VERSION=v$(get_polkadot_node_version_from_code)
           export GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 

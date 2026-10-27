@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Full release version identifier (e.g., stable2512 or stable2512-2)'
+        description: 'Full release version identifier (e.g., stable2512, stable2512-2 or unstable2604)'
         required: true
         type: string
       bump_node_version:
@@ -44,13 +44,13 @@ jobs:
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [[ ! "$INPUT_VERSION" =~ ^stable[0-9]{4}(-[0-9]+)?$ ]]; then
-            echo "::error::version '${INPUT_VERSION}' must be in the format stableYYMM or stableYYMM-X"
+          if [[ ! "$INPUT_VERSION" =~ ^(un)?stable[0-9]{4}(-[0-9]+)?$ ]]; then
+            echo "::error::version '${INPUT_VERSION}' must be in the format (un)stableYYMM or (un)stableYYMM-X"
             exit 1
           fi
 
           # Base release branch: the version without its last -N segment
-          base_release=$(sed -E 's/^(stable[0-9]{4}).*/\1/' <<< "$INPUT_VERSION")
+          base_release=$(sed -E 's/^((un)?stable[0-9]{4}).*/\1/' <<< "$INPUT_VERSION")
 
           echo "version=${INPUT_VERSION}" >> $GITHUB_OUTPUT
           echo "base_release=${base_release}" >> $GITHUB_OUTPUT

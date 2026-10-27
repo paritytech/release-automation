@@ -5,7 +5,7 @@
 #
 # Every stage asks this rather than probing for arm64 artifacts: a stage that
 # expects them fails when they are missing, instead of quietly skipping them.
-name: Stable Release - Check arm64 support
+name: Stable Release - Reusable Check arm64 support
 
 on:
   workflow_call:

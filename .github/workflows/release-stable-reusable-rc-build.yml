@@ -5,7 +5,7 @@
 # With `dry_run: true` it only builds and packages: no `release` environment
 # (so no environment secrets), no signing, no attestations, no S3 upload. The
 # skew regression check uses this to build old release trains on pull requests.
-name: Stable Release - RC Build
+name: Stable Release - Reusable RC Build
 
 on:
   workflow_call:
@@ -100,7 +100,9 @@ jobs:
         if: ${{ !inputs.dry_run }}
         run: |
           # Install pgpkms that is used to sign built artifacts
-          python3 -m pip install "pgpkms @ git+https://github.com/paritytech/pgpkms.git@dc30e487d47f53d069831a4306377a3ec32638ae"
+          # The env var instead of --break-system-packages: the image comes from the release
+          # branch, and older pip (before 23.0.1) rejects the flag but ignores the variable.
+          PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install "pgpkms @ git+https://github.com/paritytech/pgpkms.git@dc30e487d47f53d069831a4306377a3ec32638ae"
           which pgpkms
 
       - name: Assert the guard ran

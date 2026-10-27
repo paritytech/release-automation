@@ -6,13 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Current release/rc version in format polkadot-stableYYMM or polkadot-stableYYMM-X
+        description: Current release/rc version in format polkadot-(un)stableYYMM or polkadot-(un)stableYYMM-X
         required: true
         type: string
   workflow_call:
     inputs:
       version:
-        description: Current release/rc version in format polkadot-stableYYMM or polkadot-stableYYMM-X
+        description: Current release/rc version in format polkadot-(un)stableYYMM or polkadot-(un)stableYYMM-X
         required: true
         type: string
 
@@ -30,12 +30,12 @@ jobs:
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [[ ! "$INPUT_VERSION" =~ ^polkadot-stable[0-9]{4}(-[0-9]+)?$ ]]; then
-            echo "::error::version '${INPUT_VERSION}' must be in the format polkadot-stableYYMM or polkadot-stableYYMM-X"
+          if [[ ! "$INPUT_VERSION" =~ ^polkadot-(un)?stable[0-9]{4}(-[0-9]+)?$ ]]; then
+            echo "::error::version '${INPUT_VERSION}' must be in the format polkadot-(un)stableYYMM or polkadot-(un)stableYYMM-X"
             exit 1
           fi
 
-          stable_branch=$(sed -E 's/^polkadot-(stable[0-9]{4}).*/\1/' <<< "$INPUT_VERSION")
+          stable_branch=$(sed -E 's/^polkadot-((un)?stable[0-9]{4}).*/\1/' <<< "$INPUT_VERSION")
           echo "version=${INPUT_VERSION}" >> $GITHUB_OUTPUT
           echo "stable_branch=${stable_branch}" >> $GITHUB_OUTPUT
 

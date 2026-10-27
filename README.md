@@ -1,7 +1,7 @@
 # Release automation repo
 
-This repo runs the release pipelines for `paritytech/polkadot-sdk`: the weekly unstable releases and the stable
-releases. Build logic itself lives in polkadot-sdk — every job checks that repo out at the tag being released and
+This repo runs the release pipelines for `paritytech/polkadot-sdk`: the weekly releases and the stable releases.
+The stable flows also release the `unstableYYMM` branches on demand (tags `polkadot-unstableYYMM(-X)(-rcX)`). Build logic itself lives in polkadot-sdk — every job checks that repo out at the tag being released and
 runs its `.github/scripts/`, `scripts/release/` and `docker/`.
 
 Workflows are numbered by stage. `release-*` are the weekly flows, `release-stable-*` the stable ones. Every
