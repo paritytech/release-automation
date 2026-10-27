@@ -45,8 +45,10 @@ jobs:
                   s["run"].to_s.each_line do |line|
                     next if line.strip.start_with?("#")
                     next unless line =~ %r{\.github/scripts/(common|release)/}
+                    # $GITHUB_WORKSPACE is the workspace root, not another checkout.
+                    root_line = line.gsub(%r{\$\{?GITHUB_WORKSPACE\}?/}, "")
                     ok = sdk.any? do |p|
-                      p.empty? ? line !~ %r{[A-Za-z0-9_-][\w.-]*/\.github/scripts/} : line.include?("#{p}/.github/scripts/")
+                      p.empty? ? root_line !~ %r{[A-Za-z0-9_-][\w.-]*/\.github/scripts/} : line.include?("#{p}/.github/scripts/")
                     end
                     bad << "#{File.basename(f)} :: #{job} :: #{line.strip}" unless ok
                   end
