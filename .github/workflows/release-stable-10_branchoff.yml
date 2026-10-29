@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       stable_version:
-        description: Stable version in the format stableYYMM that will be used as branch name and rc tag base
+        description: Stable version in the format stableYYMM (branch name and rc tag base) or stableYYMM-X (rc tag base of a patch release)
         required: true
         type: string
 
@@ -45,6 +45,7 @@ jobs:
         env:
           INPUT_NODE_VERSION: ${{ inputs.node_version }}
           INPUT_STABLE_VERSION: ${{ inputs.stable_version }}
+          INPUT_IS_NEW_STABLE: ${{ inputs.is_new_stable }}
         run: |
           . ./.github/scripts/common/lib.sh
 
@@ -53,10 +54,18 @@ jobs:
             echo "node_version=${node_version}" >> $GITHUB_OUTPUT
           fi
 
-          # The stable version doubles as the branch name, so it must be the bare
-          # stableYYMM form: no polkadot- prefix, no patch or rc suffix.
-          if [[ ! "$INPUT_STABLE_VERSION" =~ ^stable[0-9]{4}$ ]]; then
-            echo "::error::stable_version '${INPUT_STABLE_VERSION}' must be in the format stableYYMM"
+          # The stable version is the rc tag base: bare stableYYMM, or stableYYMM-X
+          # for a patch release. No polkadot- prefix or rc suffix, the rc tagging
+          # flow adds both.
+          if [[ ! "$INPUT_STABLE_VERSION" =~ ^stable[0-9]{4}(-[0-9]+)?$ ]]; then
+            echo "::error::stable_version '${INPUT_STABLE_VERSION}' must be in the format stableYYMM or stableYYMM-X"
+            exit 1
+          fi
+
+          # A new stable branch is named after the bare stableYYMM line. A patch
+          # release is tagged on the existing branch, so it can never branch off.
+          if [[ "$INPUT_IS_NEW_STABLE" == "true" && "$INPUT_STABLE_VERSION" == *-* ]]; then
+            echo "::error::stable_version '${INPUT_STABLE_VERSION}' has a patch suffix, but a new stable branch is named stableYYMM. Untick is_new_stable to tag an rc for a patch release, or pass '${INPUT_STABLE_VERSION%%-*}' to branch off."
             exit 1
           fi
 
