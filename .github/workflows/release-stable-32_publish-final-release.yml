@@ -2,6 +2,7 @@ name: Stable Release - Publish final release
 
 # Publishing from the UI makes GitHub create the final tag itself, and that tag
 # is lightweight and unsigned. Tagging here puts a `git tag -s` back in the loop.
+# Re-running after a mid-way failure resumes where the previous run stopped.
 
 on:
   workflow_dispatch:
@@ -15,9 +16,13 @@ on:
         default: true
         type: boolean
       mark_latest:
-        description: Mark as Latest on GitHub (only for the newest stable release)
-        default: false
-        type: boolean
+        description: "Mark as Latest on GitHub. auto: yes when the release line is the newest stable line; true/false: override"
+        default: auto
+        type: choice
+        options:
+          - auto
+          - "true"
+          - "false"
 
 jobs:
   guard:
@@ -53,17 +58,17 @@ jobs:
     env:
       PGP_KMS_KEY: ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
       PGP_KMS_HASH: ${{ secrets.PGP_KMS_HASH }}
+      GPG_KEY_FINGERPRINT: ${{ vars.GPG_COMMIT_KEY_FINGERPRINT }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
       RC_TAG: ${{ needs.validate-inputs.outputs.release_tag }}
       FINAL_TAG: ${{ needs.validate-inputs.outputs.final_tag }}
+      GUARD_SHA: ${{ needs.guard.outputs.sha }}
 
     steps:
       - name: Assert the guard ran
         shell: bash
-        env:
-          GUARD_SHA: ${{ needs.guard.outputs.sha }}
         run: '[[ "$GUARD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No verified SHA from the release guard"; exit 1; }'
 
       - name: Install pgpkms
@@ -87,51 +92,132 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.generate_write_token.outputs.token }}
 
-      - name: Check the draft is there and the final tag is free
+      - name: Work out what is left to do
+        id: state
         env:
           GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
         run: |
-          # polkadot-* tags cannot be moved or deleted afterwards, so stop before
-          # tagging rather than halfway through.
-          if git rev-parse -q --verify "refs/tags/${FINAL_TAG}" >/dev/null; then
-            echo "::error::tag ${FINAL_TAG} already exists"
-            exit 1
-          fi
-          draft=$(gh release view "$RC_TAG" --repo paritytech/polkadot-sdk --json isDraft --jq .isDraft)
-          if [[ "$draft" != "true" ]]; then
-            echo "::error::release ${RC_TAG} is not a draft"
+          # A previous run may have pushed the tag, or published the draft as well,
+          # before failing. Resume from there. polkadot-* tags cannot be moved or
+          # deleted afterwards, so a tag anywhere but on the verified commit is fatal.
+          # One listing covers drafts and published releases alike, and a failed
+          # call fails the step instead of passing for "not found".
+          releases=$(gh api --paginate "repos/paritytech/polkadot-sdk/releases?per_page=100" --jq '.[] | "\(.tag_name) \(.draft)"')
+          state_of() { local s; s=$(awk -v t="$1" '$1 == t { print $2 }' <<<"$releases"); echo "${s:-missing}"; }
+          rc=$(state_of "$RC_TAG")        # true: draft, false: published, missing
+          final=$(state_of "$FINAL_TAG")
+          tag_commit=$(git rev-parse -q --verify "refs/tags/${FINAL_TAG}^{commit}" || true)
+
+          if [[ -n "$tag_commit" && "$tag_commit" != "$GUARD_SHA" ]]; then
+            echo "::error::tag ${FINAL_TAG} already exists on ${tag_commit}, not on the verified ${GUARD_SHA}"
             exit 1
           fi
 
+          case "${rc}/${final}" in
+            true/missing)    publish=true;  draft_tag=$RC_TAG ;;
+            missing/true)    publish=true;  draft_tag=$FINAL_TAG
+                             echo "::notice::the draft already carries the tag ${FINAL_TAG}" ;;
+            missing/false)   publish=false; draft_tag=
+                             echo "::notice::${RC_TAG} is already published as ${FINAL_TAG}" ;;
+            false/*)         echo "::error::release ${RC_TAG} is already published, not a draft"; exit 1 ;;
+            missing/missing) echo "::error::no draft release ${RC_TAG}"; exit 1 ;;
+            *)               echo "::error::unexpected state: draft ${RC_TAG}: ${rc}, release ${FINAL_TAG}: ${final}"; exit 1 ;;
+          esac
+
+          if [[ -z "$tag_commit" ]]; then
+            tag=true
+          else
+            tag=false
+            # Publishing under a tag someone else left would defeat the point of
+            # this workflow, so an existing tag must verify before the draft goes
+            # out under it. Once published there is nothing left to protect.
+            if [[ "$publish" == true ]]; then
+              . ./.github/scripts/common/lib.sh
+              import_gpg_keys
+              git -c gpg.program=gpg tag -v "$FINAL_TAG" || {
+                echo "::error::tag ${FINAL_TAG} already exists on ${GUARD_SHA} but is not a tag signed with the release key"
+                exit 1
+              }
+            fi
+          fi
+
+          {
+            echo "tag=${tag}"
+            echo "publish=${publish}"
+            echo "draft_tag=${draft_tag}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Left to do: tag=${tag} publish=${publish}"
+
+      - name: Decide whether the release becomes Latest
+        id: latest
+        if: steps.state.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
+          MARK_LATEST: ${{ inputs.mark_latest }}
+        run: |
+          # release-99 in polkadot-sdk announces a release only when it is Latest, and
+          # the GitHub UI ticks that by default. Decided before tagging so a failure
+          # here leaves nothing behind.
+          # Prints "YYMM patch" for a stable tag and nothing for anything else.
+          stable_version() { [[ "$1" =~ ^polkadot-stable([0-9]{4})(-([0-9]+))?$ ]] && echo "${BASH_REMATCH[1]} ${BASH_REMATCH[3]:-0}"; return 0; }
+          if [[ "$MARK_LATEST" == "auto" ]]; then
+            # The rc draft is excluded here: GitHub reports the newest published release.
+            latest_tag=$(gh release view --repo paritytech/polkadot-sdk --json tagName --jq .tagName)
+            read -r new_line new_patch <<<"$(stable_version "$FINAL_TAG")"
+            read -r latest_line latest_patch <<<"$(stable_version "$latest_tag")"
+            if [[ -z "$new_line" ]]; then
+              MARK_LATEST=false   # an unstable release is never recommended as Latest
+            elif [[ -z "$latest_line" ]]; then
+              MARK_LATEST=true    # whatever is Latest now is not a stable release
+            elif (( 10#$new_line > 10#$latest_line )) || { (( 10#$new_line == 10#$latest_line )) && (( 10#$new_patch >= 10#$latest_patch )); }; then
+              MARK_LATEST=true
+            else
+              MARK_LATEST=false
+            fi
+            echo "Current latest release: ${latest_tag}; ${FINAL_TAG} becomes Latest: ${MARK_LATEST}"
+          fi
+          echo "mark_latest=${MARK_LATEST}" >> "$GITHUB_OUTPUT"
+
       - name: Import gpg keys
+        if: steps.state.outputs.tag == 'true'
         run: |
           . ./.github/scripts/common/lib.sh
 
           import_gpg_keys
 
       - name: Config git
+        if: steps.state.outputs.tag == 'true'
         run: |
           git config --global gpg.program /home/runner/.local/bin/pgpkms-git
           git config --global user.name "ParityReleases"
           git config --global user.email "release-team@parity.io"
-          git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
+          git config --global user.signingKey "$GPG_KEY_FINGERPRINT"
 
       - name: Create the final tag
+        if: steps.state.outputs.tag == 'true'
         run: |
           git tag -s "$FINAL_TAG" -m "Polkadot release $FINAL_TAG"
+          # pgpkms-git only signs, so verify with the real gpg and the public keys
+          # import_gpg_keys fetched. Verify before pushing: the tag cannot be moved later.
+          git -c gpg.program=gpg tag -v "$FINAL_TAG" || {
+            echo "::error::the signature on ${FINAL_TAG} does not verify against ${GPG_KEY_FINGERPRINT}; check the key's public copy on the keyserver"
+            exit 1
+          }
           git push origin "$FINAL_TAG"
-          git tag -v "$FINAL_TAG"
 
       - name: Publish the draft under the final tag
+        if: steps.state.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
-          MARK_LATEST: ${{ inputs.mark_latest }}
+          MARK_LATEST: ${{ steps.latest.outputs.mark_latest }}
+          DRAFT_TAG: ${{ steps.state.outputs.draft_tag }}
         run: |
           # The tag exists now, so GitHub attaches to it instead of making one.
-          gh release edit "$RC_TAG" \
+          # Release titles read "Polkadot stableYYMM(-X)", without the tag prefix.
+          gh release edit "$DRAFT_TAG" \
             --repo paritytech/polkadot-sdk \
             --tag "$FINAL_TAG" \
-            --title "Polkadot $FINAL_TAG" \
+            --title "Polkadot ${FINAL_TAG#polkadot-}" \
             --draft=false \
             --latest="$MARK_LATEST"
 
