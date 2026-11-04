@@ -130,6 +130,7 @@ jobs:
           git config --global gpg.program "$PGPKMS_PATH"
           git config --global user.name "ParityReleases"
           git config --global user.email "release-team@parity.io"
+          [[ "$GPG_KEY_FINGERPRINT" =~ ^[0-9A-F]{40}$ ]] || { echo "::error::vars.GPG_COMMIT_KEY_FINGERPRINT is not set"; exit 1; }
           git config --global user.signingKey "$GPG_KEY_FINGERPRINT"
 
       - name: Bump NODE_VERSION for polkadot

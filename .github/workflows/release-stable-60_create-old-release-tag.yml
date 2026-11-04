@@ -82,6 +82,8 @@ jobs:
 
           version=$(get_polkadot_node_version_from_code)
           echo "Extracted node version: $version"
+          # The tag is immutable once pushed, so never build it from a garbled version.
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::no node version found in the sources: '${version}'"; exit 1; }
           tag="polkadot-v${version}"
 
           # The tag may already be there: polkadot-sdk's own release-60 workflow still
@@ -123,6 +125,7 @@ jobs:
           git config --global gpg.program /home/runner/.local/bin/pgpkms-git
           git config --global user.name "ParityReleases"
           git config --global user.email "release-team@parity.io"
+          [[ "$GPG_KEY_FINGERPRINT" =~ ^[0-9A-F]{40}$ ]] || { echo "::error::vars.GPG_COMMIT_KEY_FINGERPRINT is not set"; exit 1; }
           git config --global user.signingKey "$GPG_KEY_FINGERPRINT"
 
       - name: Create old release tag
