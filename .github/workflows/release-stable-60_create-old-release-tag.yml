@@ -37,9 +37,12 @@ jobs:
     env:
       PGP_KMS_KEY: ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
       PGP_KMS_HASH: ${{ secrets.PGP_KMS_HASH }}
+      # Spares pgpkms-git the key export from KMS, which fails without GPG_KEY_EXPIRATION
+      GPG_KEY_FINGERPRINT: ${{ vars.GPG_COMMIT_KEY_FINGERPRINT }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+      GUARD_SHA: ${{ needs.guard.outputs.sha }}
 
     steps:
       - name: Accept final release tags only
@@ -57,11 +60,6 @@ jobs:
           GUARD_SHA: ${{ needs.guard.outputs.sha }}
         run: '[[ "$GUARD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No verified SHA from the release guard"; exit 1; }'
 
-      - name: Install pgpkkms
-        run: |
-          # Install pgpkms that is used to sign commits
-          pip install git+https://github.com/paritytech/pgpkms.git@dc30e487d47f53d069831a4306377a3ec32638ae
-
       - name: Generate content write token for the release automation
         id: generate_write_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -78,28 +76,73 @@ jobs:
           ref: ${{ needs.guard.outputs.sha }}
           token: ${{ steps.generate_write_token.outputs.token }}
 
+      - name: Work out whether the tag is still needed
+        id: state
+        run: |
+          set -o pipefail
+          . ./.github/scripts/common/lib.sh
+
+          version=$(get_polkadot_node_version_from_code)
+          echo "Extracted node version: $version"
+          # The tag is immutable once pushed, so never build it from a garbled version.
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::no node version found in the sources: '${version}'"; exit 1; }
+          tag="polkadot-v${version}"
+
+          # The tag may already be there: polkadot-sdk's own release-60 workflow still
+          # creates it on the `release: published` event, and the relay can dispatch
+          # this workflow on top of the call from release-stable-32. Whoever comes
+          # second accepts the tag if it is on the released commit, and errors otherwise.
+          # Both patterns are needed: only an annotated tag has a peeled ^{} entry.
+          existing=$(git ls-remote --tags origin "refs/tags/${tag}" "refs/tags/${tag}^{}" | tail -n 1 | cut -f1)
+          if [[ -n "$existing" && "$existing" != "$GUARD_SHA" ]]; then
+            echo "::error::tag ${tag} already exists on ${existing}, not on ${GUARD_SHA}"
+            exit 1
+          fi
+          if [[ -n "$existing" ]]; then
+            echo "::notice::tag ${tag} already exists on ${GUARD_SHA}, nothing to do"
+            needed=false
+          else
+            needed=true
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "needed=${needed}" >> "$GITHUB_OUTPUT"
+
+      - name: Install pgpkms
+        if: steps.state.outputs.needed == 'true'
+        run: |
+          # Install pgpkms that is used to sign commits
+          pip install git+https://github.com/paritytech/pgpkms.git@dc30e487d47f53d069831a4306377a3ec32638ae
+
       - name: Import gpg keys
+        if: steps.state.outputs.needed == 'true'
         run: |
           . ./.github/scripts/common/lib.sh
 
           import_gpg_keys
 
       - name: Config git
+        if: steps.state.outputs.needed == 'true'
         run: |
           git config --global commit.gpgsign true
           git config --global gpg.program /home/runner/.local/bin/pgpkms-git
           git config --global user.name "ParityReleases"
           git config --global user.email "release-team@parity.io"
-          git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
+          [[ "$GPG_KEY_FINGERPRINT" =~ ^[0-9A-F]{40}$ ]] || { echo "::error::vars.GPG_COMMIT_KEY_FINGERPRINT is not set"; exit 1; }
+          git config --global user.signingKey "$GPG_KEY_FINGERPRINT"
 
       - name: Create old release tag
+        if: steps.state.outputs.needed == 'true'
         env:
-          GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
+          TAG: ${{ steps.state.outputs.tag }}
         run: |
-          . ./.github/scripts/common/lib.sh
-
-          version=$(get_polkadot_node_version_from_code)
-          echo "Extracted node version: $version"
-
-          git tag -s "polkadot-v${version}" -m "Old release tag polkadot-v${version}"
-          git push origin "polkadot-v${version}"
+          set -o pipefail
+          git tag -s "$TAG" -m "Old release tag $TAG"
+          if ! git push origin "$TAG"; then
+            # A concurrent run may have won the race, which is fine on the same commit.
+            existing=$(git ls-remote --tags origin "refs/tags/${TAG}" "refs/tags/${TAG}^{}" | tail -n 1 | cut -f1)
+            if [[ "$existing" != "$GUARD_SHA" ]]; then
+              echo "::error::pushing ${TAG} failed and the remote has it on '${existing}', not on ${GUARD_SHA}"
+              exit 1
+            fi
+            echo "::notice::tag ${TAG} was created concurrently on ${GUARD_SHA}"
+          fi

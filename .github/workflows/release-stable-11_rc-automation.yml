@@ -51,6 +51,7 @@ jobs:
     env:
       PGP_KMS_KEY: ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
       PGP_KMS_HASH: ${{ secrets.PGP_KMS_HASH }}
+      GPG_KEY_FINGERPRINT: ${{ vars.GPG_COMMIT_KEY_FINGERPRINT }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
@@ -90,7 +91,8 @@ jobs:
           git config --global gpg.program /home/runner/.local/bin/pgpkms-git
           git config --global user.name "ParityReleases"
           git config --global user.email "release-team@parity.io"
-          git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
+          [[ "$GPG_KEY_FINGERPRINT" =~ ^[0-9A-F]{40}$ ]] || { echo "::error::vars.GPG_COMMIT_KEY_FINGERPRINT is not set"; exit 1; }
+          git config --global user.signingKey "$GPG_KEY_FINGERPRINT"
 
       - name: Compute next rc tag
         id: compute_tag
