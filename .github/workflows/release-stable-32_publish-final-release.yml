@@ -87,11 +87,15 @@ jobs:
       GUARD_SHA: ${{ needs.guard.outputs.sha }}
 
     steps:
-      - name: Assert the guard ran and the signing key is configured
+      - name: Assert the guard ran
         shell: bash
-        run: |
-          [[ "$GUARD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No verified SHA from the release guard"; exit 1; }
-          [[ "$GPG_KEY_FINGERPRINT" =~ ^[0-9A-F]{40}$ ]] || { echo "::error::vars.GPG_COMMIT_KEY_FINGERPRINT is not set"; exit 1; }
+        env:
+          GUARD_SHA: ${{ needs.guard.outputs.sha }}
+        run: '[[ "$GUARD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No verified SHA from the release guard"; exit 1; }'
+
+      - name: Assert the signing key is configured
+        shell: bash
+        run: '[[ "$GPG_KEY_FINGERPRINT" =~ ^[0-9A-F]{40}$ ]] || { echo "::error::vars.GPG_COMMIT_KEY_FINGERPRINT is not set"; exit 1; }'
 
       - name: Install pgpkms
         run: |
