@@ -297,8 +297,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: [ guard, fetch-artifacts, validate-inputs ]
     environment: release
-    env:
-      IMAGE: ${{ inputs.registry }}/${{ inputs.owner || github.repository_owner }}/${{ inputs.binary }}
 
     steps:
       - name: Assert the guard ran
@@ -324,7 +322,12 @@ jobs:
         run: |
           # build-injected.sh reads BINARY (the binaries to inject), DOCKERFILE,
           # POLKADOT_DEB and SKIP_IMAGE_VALIDATION from the environment. DOCKERFILE is
-          # always set so the platform check below can read it.
+          # always set so the platform check below can read it. IMAGE is the override
+          # build-injected.sh takes for the image name; the push and the checks below
+          # read it too.
+          echo "Image: ${REGISTRY}/${DOCKER_OWNER}/${BINARY}"
+          echo "IMAGE=${REGISTRY}/${DOCKER_OWNER}/${BINARY}" >> $GITHUB_ENV
+
           case "$BINARY" in
             polkadot)
               echo "IMAGE_BINS=polkadot,polkadot-execute-worker,polkadot-prepare-worker" >> $GITHUB_ENV
