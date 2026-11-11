@@ -175,11 +175,14 @@ jobs:
     with:
       sha: ${{ needs.guard.outputs.sha }}
 
-  fetch-artifacts: # this job will be triggered for the polkadot-parachain rc and release or polkadot rc image build
+  # Fetches the binaries of every platform whose image is built by injecting them.
+  # That is all of them, except amd64 of the polkadot release image (deb package).
+  fetch-artifacts:
     runs-on: ubuntu-latest
     needs: [ guard, validate-inputs, arm64-support ]
     outputs:
       archs: ${{ steps.archs.outputs.archs }}
+      injected_archs: ${{ steps.archs.outputs.injected_archs }}
 
     steps:
       - name: Assert the guard ran
@@ -189,7 +192,6 @@ jobs:
         run: '[[ "$GUARD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No verified SHA from the release guard"; exit 1; }'
 
       - name: Checkout polkadot-sdk sources
-        if: ${{ inputs.binary == 'polkadot-omni-node' || inputs.binary == 'polkadot-parachain' || inputs.binary == 'chain-spec-builder' || inputs.binary == 'eth-rpc' || inputs.image_type == 'rc' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: paritytech/polkadot-sdk
@@ -201,10 +203,9 @@ jobs:
           ARM64_SUPPORTED: ${{ needs.arm64-support.outputs.supported }}
           VERSION: ${{ needs.validate-inputs.outputs.stable_tag }}
         run: |
-          # The polkadot release image installs the amd64-only deb package, so it
-          # stays amd64. build-container may drop arm64 again if the base image lacks it.
+          # build-container may drop arm64 again if the base image lacks it.
           archs="amd64"
-          if [[ "$ARM64_SUPPORTED" == "true" && ! ( "$BINARY" == "polkadot" && "$IMAGE_TYPE" == "release" ) ]]; then
+          if [[ "$ARM64_SUPPORTED" == "true" ]]; then
             . ./.github/scripts/common/lib.sh
 
             # The commit being able to cross-build does not mean this release was
@@ -216,10 +217,21 @@ jobs:
             else
               bins=("$BINARY")
             fi
+            #
+            # Only a 404 counts as "not built". Anything else (after retries) fails the
+            # job: a network or S3 hiccup must not quietly publish an amd64-only image.
             missing=()
             for bin in "${bins[@]}"; do
-              url="$(get_s3_url_base "$bin")/${VERSION}/aarch64-unknown-linux-gnu/${bin}.sha256"
-              curl -fsI "$url" > /dev/null || missing+=("$bin")
+              url="https://$(get_s3_url_base "$bin")/${VERSION}/aarch64-unknown-linux-gnu/${bin}.sha256"
+              code=$(curl -sI -o /dev/null -w '%{http_code}' --retry 5 --retry-delay 5 --retry-all-errors "$url") || true
+              case "$code" in
+                200) ;;
+                404) missing+=("$bin") ;;
+                *)
+                  echo "::error::Could not check ${url} for arm64 artifacts (HTTP ${code:-none})"
+                  exit 1
+                  ;;
+              esac
             done
 
             if [[ ${#missing[@]} -eq 0 ]]; then
@@ -228,14 +240,32 @@ jobs:
               echo "::warning::${VERSION} has no aarch64-unknown-linux-gnu artifacts for: ${missing[*]}. The ${BINARY} image is published for amd64 only."
             fi
           fi
-          echo "Wanted platforms for ${BINARY}: ${archs}"
+
+          # The platforms whose image is built from binaries fetched from S3. The
+          # polkadot release image installs the deb package on amd64; the package is
+          # amd64 only, so its arm64 variant injects the binaries like the rc image.
+          injected_archs="$archs"
+          if [[ "$BINARY" == "polkadot" && "$IMAGE_TYPE" == "release" ]]; then
+            # That variant needs the release Dockerfile, which keeps the layout of the
+            # deb image. Releases cut before it was added stay amd64 only.
+            release_dockerfile=docker/dockerfiles/polkadot/polkadot_injected_release_binary.Dockerfile
+            if [[ "$archs" == *arm64* && ! -f "$release_dockerfile" ]]; then
+              echo "::warning::${release_dockerfile} does not exist at this commit. The polkadot release image is published for amd64 only."
+              archs="amd64"
+            fi
+            injected_archs="${archs#amd64}"
+            injected_archs="${injected_archs# }"
+          fi
+
+          echo "Wanted platforms for ${BINARY}: ${archs} (injected binaries: ${injected_archs:-none})"
           echo "archs=${archs}" >> $GITHUB_OUTPUT
+          echo "injected_archs=${injected_archs}" >> $GITHUB_OUTPUT
 
       - name: Fetch rc artifacts or release artifacts from s3 based on version
-        if: ${{ inputs.binary == 'polkadot-omni-node' || inputs.binary == 'polkadot-parachain' || inputs.binary == 'chain-spec-builder' || inputs.binary == 'eth-rpc' || inputs.image_type == 'rc' }}
+        if: ${{ steps.archs.outputs.injected_archs != '' }}
         env:
           VERSION: ${{ needs.validate-inputs.outputs.stable_tag }}
-          ARCHS: ${{ steps.archs.outputs.archs }}
+          ARCHS: ${{ steps.archs.outputs.injected_archs }}
           PLATFORMS: '{ "amd64": "x86_64-unknown-linux-gnu", "arm64": "aarch64-unknown-linux-gnu" }'
         run: |
           . ./.github/scripts/common/lib.sh
@@ -257,18 +287,16 @@ jobs:
           done
 
       - name: Upload artifacts
-        if: ${{ inputs.binary == 'polkadot-omni-node' || inputs.binary == 'polkadot-parachain' || inputs.binary == 'chain-spec-builder' || inputs.binary == 'eth-rpc' || inputs.image_type == 'rc' }}
+        if: ${{ steps.archs.outputs.injected_archs != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-artifacts-${{ env.BINARY }}
           path: release-artifacts/
 
-  build-container: # this job will be triggered for the polkadot-parachain rc and release or polkadot rc image build
+  build-container:
     runs-on: ubuntu-latest
     needs: [ guard, fetch-artifacts, validate-inputs ]
     environment: release
-    env:
-      IMAGE: ${{ inputs.registry }}/${{ inputs.owner || github.repository_owner }}/${{ inputs.binary }}
 
     steps:
       - name: Assert the guard ran
@@ -284,7 +312,7 @@ jobs:
           ref: ${{ needs.guard.outputs.sha }}
 
       - name: Download artifacts
-        if: ${{ inputs.binary == 'polkadot-omni-node' || inputs.binary == 'polkadot-parachain' || inputs.binary == 'chain-spec-builder' || inputs.binary == 'eth-rpc' || inputs.image_type == 'rc' }}
+        if: ${{ needs.fetch-artifacts.outputs.injected_archs != '' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-artifacts-${{ env.BINARY }}
@@ -294,15 +322,30 @@ jobs:
         run: |
           # build-injected.sh reads BINARY (the binaries to inject), DOCKERFILE,
           # POLKADOT_DEB and SKIP_IMAGE_VALIDATION from the environment. DOCKERFILE is
-          # always set so the platform check below can read it.
+          # always set so the platform check below can read it. IMAGE is the override
+          # build-injected.sh takes for the image name; the push and the checks below
+          # read it too.
+          echo "Image: ${REGISTRY}/${DOCKER_OWNER}/${BINARY}"
+          echo "IMAGE=${REGISTRY}/${DOCKER_OWNER}/${BINARY}" >> $GITHUB_ENV
+
           case "$BINARY" in
             polkadot)
               echo "IMAGE_BINS=polkadot,polkadot-execute-worker,polkadot-prepare-worker" >> $GITHUB_ENV
               if [[ "$IMAGE_TYPE" == "rc" ]]; then
                 echo "DOCKERFILE=docker/dockerfiles/polkadot/polkadot_injected.Dockerfile" >> $GITHUB_ENV
               else
-                echo "DOCKERFILE=docker/dockerfiles/polkadot/polkadot_injected_debian.Dockerfile" >> $GITHUB_ENV
-                echo "POLKADOT_DEB=true" >> $GITHUB_ENV
+                # A release image is built from two Dockerfiles:
+                #   DEB_DOCKERFILE - amd64, installs the deb package.
+                #   DOCKERFILE     - arm64, injects the binaries (there is no arm64 deb).
+                if [[ -f docker/dockerfiles/polkadot/polkadot_injected_release_binary.Dockerfile ]]; then
+                  echo "DOCKERFILE=docker/dockerfiles/polkadot/polkadot_injected_release_binary.Dockerfile" >> $GITHUB_ENV
+                else
+                  # Older branches do not have the arm64 Dockerfile and are published
+                  # for amd64 only (see fetch-artifacts). Nothing is built from
+                  # DOCKERFILE then, but the platform check below still reads it.
+                  echo "DOCKERFILE=docker/dockerfiles/polkadot/polkadot_injected_debian.Dockerfile" >> $GITHUB_ENV
+                fi
+                echo "DEB_DOCKERFILE=docker/dockerfiles/polkadot/polkadot_injected_debian.Dockerfile" >> $GITHUB_ENV
               fi
               ;;
             polkadot-parachain)
@@ -334,6 +377,7 @@ jobs:
         shell: bash
         env:
           WANTED_ARCHS: ${{ needs.fetch-artifacts.outputs.archs }}
+          WANTED_INJECTED_ARCHS: ${{ needs.fetch-artifacts.outputs.injected_archs }}
         run: |
           # An image can only be built for the platforms its base image is published
           # for. A missing platform is dropped with a warning rather than failing the
@@ -359,8 +403,19 @@ jobs:
             exit 1
           fi
 
-          echo "Building ${IMAGE} for: ${archs[*]}"
+          # The platforms built from injected binaries, as decided by fetch-artifacts,
+          # less those dropped above. These have artifacts to check; any other platform
+          # is the polkadot release image installed from the deb package.
+          injected=()
+          for arch in "${archs[@]}"; do
+            if grep -qw "$arch" <<< "$WANTED_INJECTED_ARCHS"; then
+              injected+=("$arch")
+            fi
+          done
+
+          echo "Building ${IMAGE} for: ${archs[*]} (injected binaries: ${injected[*]:-none})"
           echo "ARCHS=${archs[*]}" >> $GITHUB_ENV
+          echo "INJECTED_ARCHS=${injected[*]}" >> $GITHUB_ENV
 
       - name: Set up QEMU
         # Runs the arm64 image steps and smoke tests on this amd64 runner.
@@ -368,14 +423,14 @@ jobs:
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
       - name: Check sha256 of the ${{ env.BINARY }} binaries
-        if: ${{ inputs.binary == 'polkadot-omni-node' || inputs.binary == 'polkadot-parachain' || inputs.binary == 'chain-spec-builder' || inputs.binary == 'eth-rpc' || inputs.image_type == 'rc' }}
+        if: ${{ env.INJECTED_ARCHS != '' }}
         working-directory: release-artifacts
         run: |
           . ../.github/scripts/common/lib.sh
 
           # No `|| echo ERR` here: the fetch saves an S3 error page in place of a
           # missing file, and that has to fail the job rather than be published.
-          for arch in $ARCHS; do
+          for arch in $INJECTED_ARCHS; do
             pushd "$arch" > /dev/null
             for bin in ${IMAGE_BINS//,/ }; do
               echo "Checking binary $arch/$bin"
@@ -385,13 +440,13 @@ jobs:
           done
 
       - name: Check GPG of the ${{ env.BINARY }} binaries
-        if: ${{ inputs.binary == 'polkadot-omni-node' || inputs.binary == 'polkadot-parachain' || inputs.binary == 'chain-spec-builder' || inputs.binary == 'eth-rpc' || inputs.image_type == 'rc' }}
+        if: ${{ env.INJECTED_ARCHS != '' }}
         working-directory: release-artifacts
         run: |
           . ../.github/scripts/common/lib.sh
           import_gpg_keys
 
-          for arch in $ARCHS; do
+          for arch in $INJECTED_ARCHS; do
             pushd "$arch" > /dev/null
             for bin in ${IMAGE_BINS//,/ }; do
               check_gpg "$bin"
@@ -458,11 +513,20 @@ jobs:
           for arch in $ARCHS; do
             arch_tags=$(printf "%s-${arch}," "${tags[@]}")
             echo "Building ${IMAGE} for linux/${arch} with tags ${arch_tags%,}"
-            DOCKER_DEFAULT_PLATFORM="linux/${arch}" \
-            ARTIFACTS_FOLDER="release-artifacts/${arch}" \
-            BINARY="$IMAGE_BINS" \
-            TAGS="${arch_tags%,}" \
-              ./docker/scripts/build-injected.sh
+            if ! grep -qw "$arch" <<< "$INJECTED_ARCHS"; then
+              # The polkadot release image for amd64, installed from the deb package.
+              DOCKER_DEFAULT_PLATFORM="linux/${arch}" \
+              DOCKERFILE="$DEB_DOCKERFILE" \
+              POLKADOT_DEB=true \
+              TAGS="${arch_tags%,}" \
+                ./docker/scripts/build-injected.sh
+            else
+              DOCKER_DEFAULT_PLATFORM="linux/${arch}" \
+              ARTIFACTS_FOLDER="release-artifacts/${arch}" \
+              BINARY="$IMAGE_BINS" \
+              TAGS="${arch_tags%,}" \
+                ./docker/scripts/build-injected.sh
+            fi
           done
 
       - name: Verify the ${{ env.BINARY }} images were built
@@ -473,6 +537,7 @@ jobs:
           # still exits 0 and the step above goes green. Assert that every tag it was
           # supposed to produce exists, for the platform it was meant for, before
           # logging in and pushing.
+          versions=()
           for arch in $ARCHS; do
             for tag in ${TAGS//,/ }; do
               built=$($ENGINE image inspect --format '{{.Architecture}}' "${IMAGE}:${tag}-${arch}" 2>/dev/null || true)
@@ -490,9 +555,21 @@ jobs:
             if [[ "$BINARY" == "chain-spec-builder" ]]; then
               $ENGINE run --rm -i --platform "linux/${arch}" "${IMAGE}:${first_tag}"
             else
-              $ENGINE run --rm -i --platform "linux/${arch}" "${IMAGE}:${first_tag}" --version
+              out=$($ENGINE run --rm -i --platform "linux/${arch}" "${IMAGE}:${first_tag}" --version)
+              echo "$out"
+              # The last line is the version; entrypoint.sh may print a banner before it.
+              versions+=("$(tail -n1 <<< "$out")")
             fi
           done
+
+          # The platforms of a tag can come from different sources: the polkadot
+          # release image takes amd64 from the deb package at `version` and arm64 from
+          # the S3 binaries of `stable_tag`. Mismatched inputs must not be published
+          # as one image.
+          if [[ $(printf '%s\n' "${versions[@]}" | sort -u | wc -l) -gt 1 ]]; then
+            echo "::error::The ${BINARY} images report different versions across platforms (${ARCHS}): $(printf "'%s' " "${versions[@]}")"
+            exit 1
+          fi
 
       - name: Login to Dockerhub to publish polkadot
         if: ${{ env.BINARY == 'polkadot' }}
