@@ -27,13 +27,21 @@ release-01_combined-flow.yml  (orchestrator — calculates inputs, calls all sta
   │     └─ release-reusable-rc-build.yml / release-build-binary.yml
   ├─ release-21_build-runtimes.yml    (deterministic runtime builds via srtool)
   │     └─ release-srtool.yml
+  ├─ polkadot-pop-e2e release-gate.yml  (external, advisory: e2e tests on a Westend fork)
   ├─ release-30_publish_release_draft.yml  (GitHub release draft)
   └─ release-50_publish-docker.yml    (Docker image builds and publishing)
 
 release-reusable-s3-upload.yml  (S3 artifact upload, used by build stages)
 ```
 
-Dependencies flow top-to-bottom: branch creation → RC tagging → builds (binaries + runtimes in parallel) → Docker images.
+Dependencies flow top-to-bottom: branch creation → RC tagging → builds (binaries + runtimes in parallel) → release draft and publish; Docker images follow the binary build, and the e2e gate runs alongside the draft once both builds are done.
+
+The e2e gate (`e2e-gate` in the combined flow) calls `paritytech/polkadot-pop-e2e`'s `release-gate.yml`, which forks
+live Westend, runs it on the `polkadot` and `polkadot-parachain` binaries from this run (bundled by
+`bundle-e2e-binaries`), upgrades relay, Asset Hub and People to the runtimes from this run and runs chain tests. It
+runs only on full runs (`binary` and `chain` both `all`) and is advisory: nothing waits for it, a red gate does not
+block the release, and `release-99_notify-failure.yml` posts its failures to the release Matrix room. The `uses:` ref
+is pinned to a commit; the gate still takes its code and network manifests from its own main branch.
 
 The stable pipeline mirrors this as `release-stable-*`, with `release-stable-22` for the combined builds and draft,
 `release-stable-70` for promoting to final plus deb, RPM and Docker, and `release-stable-32` to sign the final tag

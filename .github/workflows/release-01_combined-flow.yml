@@ -214,6 +214,101 @@ jobs:
       id-token: write
       actions: read
 
+  # The e2e gate wants polkadot and its two PVF workers side by side in ONE artifact
+  # (the engine copies the workers from the directory polkadot sits in), while the
+  # build stage uploads one artifact per binary. Collect the linux x86_64 node
+  # binaries Westend runs on into a single artifact for the gate.
+  bundle-e2e-binaries:
+    needs: [ calculate-weekly-version, build-weekly-rc ]
+    # Same condition as e2e-gate, its only consumer.
+    if: ${{ needs.calculate-weekly-version.outputs.binary == 'all' && needs.calculate-weekly-version.outputs.chain == 'all' }}
+    runs-on: parity-default
+    # Part of the advisory e2e stage: a failure here must not turn the run red.
+    # continue-on-error makes this job report success to `needs` even when it failed,
+    # so e2e-gate keys on the `ready` output instead and is skipped without a bundle.
+    # release-99_notify-failure.yml reports the failure.
+    continue-on-error: true
+    outputs:
+      ready: ${{ steps.ready.outputs.ready }}
+    permissions:
+      contents: read
+    steps:
+      - name: Download node binaries
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          pattern: "{polkadot,polkadot-prepare-worker,polkadot-execute-worker,polkadot-parachain}_x86_64-unknown-linux-gnu"
+          path: e2e-node-binaries
+          merge-multiple: true
+
+      - name: Check the bundle is complete
+        working-directory: e2e-node-binaries
+        run: |
+          ls -la
+          for binary in polkadot polkadot-prepare-worker polkadot-execute-worker polkadot-parachain; do
+            if [ ! -f "$binary" ]; then
+              echo "::error::$binary is missing from the e2e bundle"
+              exit 1
+            fi
+          done
+
+      - name: Upload the bundle
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
+        with:
+          name: e2e-node-binaries
+          path: e2e-node-binaries
+          retention-days: 7
+
+      - name: Mark the bundle as ready
+        id: ready
+        run: echo "ready=true" >> "$GITHUB_OUTPUT"
+
+  # Forks live Westend (relay, Asset Hub, People), spawns it on the node binaries built
+  # in this run, upgrades the three chains to the runtimes built in this run and runs
+  # the chain tests against the result.
+  #
+  # ADVISORY for now, in two ways:
+  #   * `advisory: true` — the gate's jobs fail visibly, but this job reports success
+  #     and the run stays green. release-99_notify-failure.yml reads the run's jobs
+  #     and posts gate failures to the release channel.
+  #   * nothing `needs` this job — it runs next to the draft and publish stages, so a
+  #     slow or hung fork cannot delay the release.
+  # To make the gate blocking, drop `advisory` and add this job to
+  # publish-release-draft's `needs` (with an `if` that still lets partial runs, where
+  # the gate is skipped, through).
+  #
+  # Only full runs are gated: a single-binary or single-chain rebuild does not produce
+  # everything the fork needs.
+  e2e-gate:
+    needs: [ calculate-weekly-version, bundle-e2e-binaries, build-runtimes ]
+    if: >-
+      ${{ needs.calculate-weekly-version.outputs.binary == 'all'
+          && needs.calculate-weekly-version.outputs.chain == 'all'
+          && needs.bundle-e2e-binaries.outputs.ready == 'true' }}
+    # The called workflow inherits this token. It only reads this run's artifacts and
+    # public releases, so it gets nothing else — and no secrets.
+    permissions:
+      contents: read
+    # Pinned to a commit so a change to the gate's inputs or a broken workflow file
+    # upstream cannot fail this whole workflow at startup. Only the workflow FILE is
+    # pinned: the gate checks out its code and network manifests from `gate_ref`
+    # (default: its main branch), so the manifests keep tracking what live Westend runs.
+    #
+    # TODO: this is the head of polkadot-pop-e2e#114 (Westend support, not merged yet).
+    # Until it merges, main has no Westend manifest and the gate fails in its plan job
+    # (advisory, so only a notice). Bump to the merge commit once it lands.
+    uses: paritytech/polkadot-pop-e2e/.github/workflows/release-gate.yml@dedd914611ef109bd50f94fecab928f49929c4ff # gate/westend (PR #114)
+    with:
+      advisory: true
+      environment: westend
+      binary_polkadot: "artifact:e2e-node-binaries"
+      binary_polkadot_parachain: "artifact:e2e-node-binaries"
+      # srtool uploads one `<chain>-runtime` artifact per runtime. The glob collects
+      # them all and the gate picks each chain's wasm by the spec_name it declares.
+      runtime_relay: "artifact:*-runtime"
+      runtime_asset_hub: "artifact:*-runtime"
+      runtime_people: "artifact:*-runtime"
+      runs_on: parity-large
+
   publish-release-draft:
     needs: [ tag-weekly-rc, build-weekly-rc, build-runtimes ]
     uses: ./.github/workflows/release-30_publish_release_draft.yml

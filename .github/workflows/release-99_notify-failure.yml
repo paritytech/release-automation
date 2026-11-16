@@ -75,9 +75,11 @@ jobs:
             | jq -s '[.[].jobs[]]')
 
           # Which jobs broke, and at which step. Kept terse so it stays readable in Matrix.
+          # The advisory e2e stage is left out: it cannot be what broke the run.
           failed_jobs=$(echo "$jobs_json" | jq -r '
                 .[]
                 | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")
+                | select((.name | startswith("e2e-gate /")) or .name == "bundle-e2e-binaries" | not)
                 | . as $job
                 | ([$job.steps[]? | select(.conclusion == "failure") | .name]) as $steps
                 | "\($job.conclusion | ascii_upcase): \($job.name)"
@@ -94,9 +96,44 @@ jobs:
           # publish-release-artifacts, so a failed runtime or asset upload does NOT fail the
           # run. On 2026-03-11 the run went green while coretime-westend and three binaries
           # failed to publish. Keying only on run conclusion would miss exactly that.
+          #
+          # The e2e stage is excluded here: it is advisory, so its failures say nothing
+          # about whether the release is complete. They are reported separately below.
           masked_failures=$(echo "$jobs_json" | jq -r '
-                [ .[] | select(.conclusion == "failure") | .name ] | .[]
+                [ .[]
+                  | select(.conclusion == "failure")
+                  | select((.name | startswith("e2e-gate /")) or .name == "bundle-e2e-binaries" | not)
+                  | .name
+                ] | .[]
               ' || true)
+
+          # --- advisory e2e gate -----------------------------------------------------------
+          #
+          # release-01 calls the Westend e2e gate with `advisory: true`: its jobs fail
+          # visibly but the calling job reports success, so the run conclusion never
+          # reflects a failed gate. Read the jobs themselves.
+          #
+          # Cancelled jobs are deliberately not reported: a cancelled run, or a newer run
+          # on the same ref cancelling this one's gate through the gate's own concurrency
+          # group, means the tests never reached a verdict. A timeout is reported, but
+          # worded as such. One markdown list item per job.
+          e2e_failures=$(echo "$jobs_json" | jq -r '
+                .[]
+                | select((.name | startswith("e2e-gate /")) or .name == "bundle-e2e-binaries")
+                | select(.conclusion == "failure" or .conclusion == "timed_out")
+                | . as $job
+                | ([$job.steps[]? | select(.conclusion == "failure") | .name]) as $steps
+                | "- "
+                  + (if $job.conclusion == "timed_out" then "TIMED OUT (no verdict)" else "FAILED" end)
+                  + ": [\($job.name)](\($job.html_url))"
+                  + (if ($steps | length) > 0 then " → step: \($steps | join(", "))" else "" end)
+              ' || true)
+
+          {
+            echo "e2e_failures<<__EOF__"
+            echo "$e2e_failures"
+            echo "__EOF__"
+          } >> "$GITHUB_OUTPUT"
 
           # Whole stages that were skipped rather than run. Scoped to the publish/Docker
           # stages on purpose: the linux/macOS build pairs skip one side by design, and
@@ -261,6 +298,28 @@ jobs:
 
             -----
 
+      # ------------------------------------------------------------ advisory e2e gate
+
+      # Independent of the run state above: the gate does not block the release, so a
+      # red gate neither opens the tracking issue nor pings @room. It is a heads-up
+      # that this weekly's binaries or runtimes did not pass on a fork of Westend.
+      - name: Matrix notice on e2e gate failure
+        if: steps.details.outputs.e2e_failures != '' && env.MATRIX_ACCESS_TOKEN != ''
+        continue-on-error: true
+        uses: s3krit/matrix-message-action@70ad3fb812ee0e45ff8999d6af11cafad11a6ecf # v0.0.3
+        with:
+          room_id: ${{ env.ROOM_ID }}
+          access_token: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
+          server: m.parity.io
+          message: |
+            🧪 **Weekly release: Westend e2e gate did not pass** (advisory — the release was not blocked).<br/>
+            Workflow: **${{ env.WORKFLOW_NAME }}**<br/>
+            Run: [#${{ env.RUN_NUMBER }}](${{ env.RUN_URL }}) — conclusion `${{ env.CONCLUSION }}`
+
+            ${{ steps.details.outputs.e2e_failures }}
+
+            -----
+
       # ---------------------------------------------------------------- recovery path
 
       - name: Close tracking issue on recovery
@@ -295,6 +354,7 @@ jobs:
           ISSUE_URL: ${{ steps.issue.outputs.url }}
           STREAK: ${{ steps.details.outputs.streak }}
           STATE: ${{ steps.details.outputs.state }}
+          E2E_FAILURES: ${{ steps.details.outputs.e2e_failures }}
         run: |
           {
             echo "### ${WORKFLOW_NAME} → ${CONCLUSION} (state: ${STATE})"
@@ -303,6 +363,10 @@ jobs:
             echo "- Consecutive non-green runs: ${STREAK}"
             if [ -n "$ISSUE_URL" ]; then
               echo "- Tracking issue: ${ISSUE_URL}"
+            fi
+            if [ -n "$E2E_FAILURES" ]; then
+              echo "- 🧪 Westend e2e gate did not pass (advisory, release not blocked):"
+              echo "$E2E_FAILURES" | sed 's/^/  /'
             fi
             if [ -z "$MATRIX_ACCESS_TOKEN" ]; then
               echo "- ⚠️ \`RELEASENOTES_MATRIX_V2_ACCESS_TOKEN\` is not set on this repo, so **no Matrix ping was sent**. Add it to enable @room alerts."
