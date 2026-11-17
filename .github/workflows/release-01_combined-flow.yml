@@ -293,10 +293,9 @@ jobs:
     # pinned: the gate checks out its code and network manifests from `gate_ref`
     # (default: its main branch), so the manifests keep tracking what live Westend runs.
     #
-    # TODO: this is the head of polkadot-pop-e2e#114 (Westend support, not merged yet).
-    # Until it merges, main has no Westend manifest and the gate fails in its plan job
-    # (advisory, so only a notice). Bump to the merge commit once it lands.
-    uses: paritytech/polkadot-pop-e2e/.github/workflows/release-gate.yml@dedd914611ef109bd50f94fecab928f49929c4ff # gate/westend (PR #114)
+    # Bump the pin when the gate's workflow file changes upstream: the file pinned here
+    # drives scripts taken from main, and the two can drift apart.
+    uses: paritytech/polkadot-pop-e2e/.github/workflows/release-gate.yml@e1cf64d0376d8a97e02ed0d1bef47d361c5a7f37 # main, 2026-11-16
     with:
       advisory: true
       environment: westend
