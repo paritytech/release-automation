@@ -295,7 +295,7 @@ jobs:
     #
     # Bump the pin when the gate's workflow file changes upstream: the file pinned here
     # drives scripts taken from main, and the two can drift apart.
-    uses: paritytech/polkadot-pop-e2e/.github/workflows/release-gate.yml@e1cf64d0376d8a97e02ed0d1bef47d361c5a7f37 # main, 2026-11-16
+    uses: paritytech/polkadot-pop-e2e/.github/workflows/release-gate.yml@main
     with:
       advisory: true
       environment: westend
