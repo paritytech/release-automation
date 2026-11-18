@@ -1,0 +1,34 @@
+# Replays a past weekly run's runtime artifacts through the PET release gate, so gate
+# changes are tested without a build. Dispatch it with the run id of a recent successful
+# weekly (artifacts live 7 days). This workflow cuts nothing and tags nothing.
+#
+# Once the gate proves out, the real job mirrors `e2e-gate` in
+# release-01_combined-flow.yml: advisory, full runs only, no `needs` on it, and its job
+# name prefix added to release-99_notify-failure.yml's filters (they match hardcoded
+# names, so an unlisted gate vanishes from failure reporting).
+
+name: Test - PET gate replay
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Weekly combined-flow run to take the *-runtime artifacts from.
+        required: true
+        type: string
+
+jobs:
+  pet-gate:
+    # Pinned to the development branch while the gate is unmerged; move to a commit pin
+    # on PET master for the real job, as with the pop-e2e gate's pin.
+    uses: open-web3-stack/polkadot-ecosystem-tests/.github/workflows/release-gate.yml@release-gate
+    permissions:
+      contents: read
+      # The gate downloads another run's artifacts through the API, which needs
+      # actions:read on this repo. The production job, reading its own run, needs it too.
+      actions: read
+    with:
+      advisory: true
+      environment: westend
+      source_run_id: ${{ inputs.source_run_id }}
+      runs_on: parity-large
