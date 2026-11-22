@@ -308,6 +308,70 @@ jobs:
       runtime_people: "artifact:*-runtime"
       runs_on: parity-large
 
+  # Forks live Westend with chopsticks at known-good blocks, overrides each chain's code
+  # with the runtimes built in this run (relay, Asset Hub, Bridge Hub, Coretime, People)
+  # and runs polkadot-ecosystem-tests' westend package against the result. Breadth to the
+  # e2e gate's depth: no node binaries involved, so it needs only the runtime artifacts.
+  #
+  # Advisory in the same two ways as e2e-gate, and reported the same way by
+  # release-99_notify-failure.yml. Needs actions:read because the gate downloads this
+  # run's artifacts through the API.
+  pet-gate:
+    needs: [ calculate-weekly-version, build-runtimes ]
+    if: >-
+      ${{ needs.calculate-weekly-version.outputs.binary == 'all'
+          && needs.calculate-weekly-version.outputs.chain == 'all' }}
+    permissions:
+      contents: read
+      actions: read
+    # Pin to a commit on PET master once open-web3-stack/polkadot-ecosystem-tests#730
+    # merges; the same pin-versus-gate_ref split as e2e-gate's comment describes.
+    uses: open-web3-stack/polkadot-ecosystem-tests/.github/workflows/release-gate.yml@master
+    with:
+      advisory: true
+      environment: westend
+      runs_on: parity-large
+
+  # One verdict per candidate. Merges every gate's junit results into a single step
+  # summary and a machine-readable verdict.json, so a reader sees where the candidate
+  # holds up without opening per-gate jobs. A gate joins by uploading junit files in
+  # artifacts named `<gate>-test-results-*`; the merge discovers gates from artifact
+  # names and needs no edit when a suite is added.
+  release-verdict:
+    needs: [ calculate-weekly-version, e2e-gate, pet-gate ]
+    # Advisory gates fail visibly, so run on their failure too; skip only when the
+    # whole stage was skipped (partial runs).
+    if: ${{ !cancelled() && (needs.e2e-gate.result != 'skipped' || needs.pet-gate.result != 'skipped') }}
+    runs-on: parity-default
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download gate results
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          pattern: "*-test-results-*"
+          path: gate-results
+
+      - name: Merge the verdict
+        env:
+          CANDIDATE: ${{ needs.calculate-weekly-version.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 .github/scripts/merge-gate-verdict.py gate-results verdict.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload verdict.json
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
+        with:
+          name: release-verdict
+          path: verdict.json
+          retention-days: 90
+
+      # The registry push for the deployment dashboard. Off until the registry
+      # repository exists; the verdict artifact above already has the exact content.
+      # - name: Push the verdict to the release registry
+      #   run: ...
+
   publish-release-draft:
     needs: [ tag-weekly-rc, build-weekly-rc, build-runtimes ]
     uses: ./.github/workflows/release-30_publish_release_draft.yml

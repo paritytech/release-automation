@@ -79,7 +79,7 @@ jobs:
           failed_jobs=$(echo "$jobs_json" | jq -r '
                 .[]
                 | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")
-                | select((.name | startswith("e2e-gate /")) or .name == "bundle-e2e-binaries" | not)
+                | select((.name | startswith("e2e-gate /")) or (.name | startswith("pet-gate /")) or .name == "bundle-e2e-binaries" | not)
                 | . as $job
                 | ([$job.steps[]? | select(.conclusion == "failure") | .name]) as $steps
                 | "\($job.conclusion | ascii_upcase): \($job.name)"
@@ -102,7 +102,7 @@ jobs:
           masked_failures=$(echo "$jobs_json" | jq -r '
                 [ .[]
                   | select(.conclusion == "failure")
-                  | select((.name | startswith("e2e-gate /")) or .name == "bundle-e2e-binaries" | not)
+                  | select((.name | startswith("e2e-gate /")) or (.name | startswith("pet-gate /")) or .name == "bundle-e2e-binaries" | not)
                   | .name
                 ] | .[]
               ' || true)
@@ -119,7 +119,7 @@ jobs:
           # worded as such. One markdown list item per job.
           e2e_failures=$(echo "$jobs_json" | jq -r '
                 .[]
-                | select((.name | startswith("e2e-gate /")) or .name == "bundle-e2e-binaries")
+                | select((.name | startswith("e2e-gate /")) or (.name | startswith("pet-gate /")) or .name == "bundle-e2e-binaries")
                 | select(.conclusion == "failure" or .conclusion == "timed_out")
                 | . as $job
                 | ([$job.steps[]? | select(.conclusion == "failure") | .name]) as $steps
