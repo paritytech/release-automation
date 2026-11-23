@@ -47,6 +47,7 @@ LOCAL_CALL = re.compile(r"\A\./\.github/workflows/(.+\.yml)\Z")
 BRANCH_CHECKOUTS = {
     "release-stable-10_branchoff.yml",
     "release-stable-11_rc-automation.yml",
+    "release-stable-15_prepare-crates.yml",
     "release-stable-60_post-crates-release-activities.yml",
     "release-stable-80_publish-crates.yml",
 }
