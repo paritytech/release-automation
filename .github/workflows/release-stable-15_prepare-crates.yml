@@ -1,0 +1,669 @@
+# Prepares a crates release on a stable or unstable branch of paritytech/polkadot-sdk
+# WITHOUT publishing anything: plans the crate versions, validates them, bumps
+# NODE_VERSION and spec_version, moves the prdocs into the release folder and opens
+# a pull request with all of it against the stable branch.
+#
+# Once that pull request is merged the rc is tagged on it (release-stable-11), built
+# and gated (release-stable-22), and only then are the crates published from the rc's
+# commit by release-stable-80. So the rc commit already carries the versions that get
+# published, and nothing reaches crates.io before the e2e gate has passed.
+#
+# Running it again for the same release, after a fix was backported, is safe: the
+# plan restarts from the newest published plan (release-stable-80 records which rc
+# it published from), so a crate on the registry is not bumped twice for a version
+# that was never published. The exception is a crate that was never on the registry:
+# its starting version is read from its manifest, which the unpublished run already
+# bumped, so a new crate moves up one more version with every re-run.
+#
+# No tag exists yet, so release-guard (which verifies tags) does not apply; the job
+# is gated by the killswitch below and by the `release` environment.
+name: Stable Release - Prepare Crates Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_name:
+        description: 'Release name (e.g., stable2509-3 or unstable2604). Base branch is derived by removing the last -N suffix.'
+        required: true
+        type: string
+      bump_node_version:
+        description: 'Bump NODE_VERSION (patch part)? Skipped on its own when an earlier run for this release already did it. Select "no" for a new stable (the branch-off set it) or if you have another reason not to bump'
+        required: true
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      bump_spec_version:
+        description: 'Bump spec_version for all runtimes? Skipped on its own when an earlier run for this release already did it. Select "no" for a new stable (the branch-off set it) or if you have another reason not to bump. The e2e gate needs runtimes ahead of live Westend'
+        required: true
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      registry:
+        description: 'Registry whose publish record decides where planning starts. staging.crates.io only for rehearsals that publish there'
+        required: true
+        type: choice
+        options:
+          - crates.io
+          - staging.crates.io
+        default: crates.io
+      baseline_ref:
+        description: 'Override, normally empty: full commit SHA whose Plan.toml holds the last published versions, or "none" to plan from scratch. The publish record is then not read'
+        required: false
+        type: string
+
+# Everything is written to paritytech/polkadot-sdk with the app token.
+permissions:
+  contents: read
+
+jobs:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    outputs:
+      STABLE_BRANCH: ${{ steps.derive_branch.outputs.STABLE_BRANCH }}
+      CRATES_RELEASE_BRANCH: ${{ steps.derive_branch.outputs.CRATES_RELEASE_BRANCH }}
+      IS_PATCH: ${{ steps.derive_branch.outputs.IS_PATCH }}
+    steps:
+      - name: Check the release killswitch
+        env:
+          RELEASES_ON: ${{ vars.RELEASES_ON }}
+        run: |
+          if [[ "$RELEASES_ON" != "true" ]]; then
+            echo -n "::error title=Releases are disabled::"
+            echo "vars.RELEASES_ON is '${RELEASES_ON:-unset}', expected 'true'. Set it to 'true' to allow releases."
+            exit 1
+          fi
+
+      # Validated inline: the branch to check out is derived from this input.
+      - name: Derive stable branch from release name
+        id: derive_branch
+        shell: bash
+        env:
+          RELEASE_NAME: ${{ inputs.release_name }}
+          BASELINE_REF: ${{ inputs.baseline_ref }}
+        run: |
+          echo "Release name: $RELEASE_NAME"
+
+          if [[ ! "$RELEASE_NAME" =~ ^(un)?stable[0-9]{4}(-[0-9]+)?$ ]]; then
+            echo "::error::release_name '${RELEASE_NAME}' must be in the format (un)stableYYMM or (un)stableYYMM-X"
+            exit 1
+          fi
+
+          if [[ -n "$BASELINE_REF" && ! "$BASELINE_REF" =~ ^(none|[0-9a-f]{40})$ ]]; then
+            echo "::error::baseline_ref must be empty, 'none' or a full commit SHA"
+            exit 1
+          fi
+
+          # Extract stable branch by removing the last -N suffix
+          # e.g., stable2509-3 -> stable2509
+          if [[ "$RELEASE_NAME" =~ ^(.+)-[0-9]+$ ]]; then
+            STABLE_BRANCH="${BASH_REMATCH[1]}"
+            IS_PATCH=true
+          else
+            # No suffix: the first release of the line, named like its branch
+            STABLE_BRANCH="$RELEASE_NAME"
+            IS_PATCH=false
+          fi
+
+          echo "Stable branch: $STABLE_BRANCH (patch release: $IS_PATCH)"
+          {
+            echo "STABLE_BRANCH=$STABLE_BRANCH"
+            echo "IS_PATCH=$IS_PATCH"
+            echo "CRATES_RELEASE_BRANCH=post-crates-release-$RELEASE_NAME"
+          } >> "$GITHUB_OUTPUT"
+
+  # Finds the plan to start from: the newest Plan.toml on the stable branch that was
+  # published.
+  #
+  # `parity-publish plan` continues from the committed Plan.toml: it bumps from the
+  # previous `to`, and it never reuses a version the registry already has. So the
+  # plan it starts from has to be exactly what is published:
+  #   * newer (a plan from an earlier run that was merged but never published) and a
+  #     crate touched again gets bumped twice;
+  #   * older (a plan from before the last publish) and every crate of the release
+  #     gets a second new version.
+  #
+  # What is published is read from the publish record, not guessed from the
+  # registry: release-stable-80 marks the rc commit it published from with the
+  # commit status `release/crates-published`, and a final tag closes a release.
+  # The logic and its tests are in .github/scripts/crates/.
+  find-baseline:
+    needs: [ validate-inputs ]
+    runs-on: ubuntu-latest
+    outputs:
+      baseline: ${{ steps.baseline.outputs.baseline }}
+      replan: ${{ steps.baseline.outputs.replan }}
+      first_prepare: ${{ steps.baseline.outputs.first_prepare }}
+    steps:
+      # Plan.toml, its history and the tags of the line are all this job reads.
+      - name: Checkout the Plan.toml history of the stable branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: paritytech/polkadot-sdk
+          ref: ${{ needs.validate-inputs.outputs.STABLE_BRANCH }}
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: Plan.toml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      # release-automation at the commit of this run, next to the tree it inspects.
+      - name: Checkout the publish record helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: release-automation
+          sparse-checkout: .github/scripts/crates
+          persist-credentials: false
+
+      - name: Find the newest published plan
+        id: baseline
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Numeric user id of the release App's bot: only its records count.
+          RELEASE_AUTOMATION_APP_BOT_ID: ${{ vars.RELEASE_AUTOMATION_APP_BOT_ID }}
+          REGISTRY: ${{ inputs.registry }}
+          BASELINE_REF: ${{ inputs.baseline_ref }}
+          STABLE_BRANCH: ${{ needs.validate-inputs.outputs.STABLE_BRANCH }}
+        run: |
+          set -euo pipefail
+          . release-automation/.github/scripts/crates/publish-record.sh
+
+          find_plan_start "$STABLE_BRANCH" "$REGISTRY" "$BASELINE_REF"
+
+          {
+            echo "baseline=${PLAN_BASELINE}"
+            echo "replan=${PLAN_REPLAN}"
+            echo "first_prepare=${PLAN_FIRST_PREPARE}"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Where planning starts"
+            echo
+            if [[ "$PLAN_BASELINE" == none ]]; then
+              echo "Nothing of this branch is published to ${REGISTRY}: planning starts from the registry's versions, without a Plan.toml."
+            else
+              echo "Published up to \`$(git log -1 --format='%h %s' "$PLAN_BASELINE")\`: planning starts from its Plan.toml."
+            fi
+            if [[ "$PLAN_REPLAN" == true ]]; then
+              echo
+              echo "Plans merged after it were never published and are planned again together with the new changes."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The build image comes from the stable branch being released.
+  set-image:
+    needs: [ validate-inputs ]
+    runs-on: ubuntu-latest
+    outputs:
+      IMAGE: ${{ steps.set_image.outputs.IMAGE }}
+    steps:
+      - name: Checkout polkadot-sdk stable branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: paritytech/polkadot-sdk
+          ref: ${{ needs.validate-inputs.outputs.STABLE_BRANCH }}
+          persist-credentials: false
+
+      - id: set_image
+        run: cat .github/env >> "$GITHUB_OUTPUT"
+
+  prepare-crates:
+    needs: [ validate-inputs, find-baseline, set-image ]
+    runs-on: parity-large
+    environment: release
+    env:
+      PGP_KMS_KEY: ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
+      PGP_KMS_HASH: ${{ secrets.PGP_KMS_HASH }}
+      # Spares pgpkms-git the key export from KMS, which fails without GPG_KEY_EXPIRATION
+      GPG_KEY_FINGERPRINT: ${{ vars.GPG_COMMIT_KEY_FINGERPRINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+      RELEASE_NAME: ${{ inputs.release_name }}
+      STABLE_BRANCH: ${{ needs.validate-inputs.outputs.STABLE_BRANCH }}
+      CRATES_RELEASE_BRANCH: ${{ needs.validate-inputs.outputs.CRATES_RELEASE_BRANCH }}
+      IS_PATCH: ${{ needs.validate-inputs.outputs.IS_PATCH }}
+      BASELINE: ${{ needs.find-baseline.outputs.baseline }}
+      REPLAN: ${{ needs.find-baseline.outputs.replan }}
+      FIRST_PREPARE: ${{ needs.find-baseline.outputs.first_prepare }}
+      # parity-publish reads one directory of prdocs. Fixed, because the path ends
+      # up in the header of Plan.toml.
+      PRDOC_DIR: /tmp/prdocs-to-plan
+    container:
+      image: ${{ needs.set-image.outputs.IMAGE }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Install pgpkms
+        run: |
+          # Install pgpkms that is used to sign commits
+          # The env var instead of --break-system-packages: the image comes from the release
+          # branch, and older pip (before 23.0.1) rejects the flag but ignores the variable.
+          PIP_BREAK_SYSTEM_PACKAGES=1 pip install git+https://github.com/paritytech/pgpkms.git@dc30e487d47f53d069831a4306377a3ec32638ae
+
+      # Full history and tags: the last final tag of the line decides what the
+      # crates list covers and whether NODE_VERSION and spec_version still need a bump.
+      - name: Checkout polkadot-sdk stable branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: paritytech/polkadot-sdk
+          ref: ${{ needs.validate-inputs.outputs.STABLE_BRANCH }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Import GPG keys
+        run: |
+          . ./.github/scripts/common/lib.sh
+          import_gpg_keys
+
+      - name: Configure git
+        run: |
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          git config --global commit.gpgsign true
+          PGPKMS_PATH=$(which pgpkms-git)
+          echo "Using pgpkms-git at: $PGPKMS_PATH"
+          git config --global gpg.program "$PGPKMS_PATH"
+          git config --global user.name "ParityReleases"
+          git config --global user.email "release-team@parity.io"
+          [[ "$GPG_KEY_FINGERPRINT" =~ ^[0-9A-F]{40}$ ]] || { echo "::error::vars.GPG_COMMIT_KEY_FINGERPRINT is not set"; exit 1; }
+          git config --global user.signingKey "$GPG_KEY_FINGERPRINT"
+
+      # A leftover branch belongs to an earlier run whose pull request is merged or
+      # abandoned. Starting on top of it would mix that run's commits into this one.
+      - name: Create the release branch
+        run: |
+          rc=0
+          git ls-remote --exit-code --heads origin "$CRATES_RELEASE_BRANCH" >/dev/null || rc=$?
+          case "$rc" in
+            2) ;;
+            0)
+              echo "::error::Branch '${CRATES_RELEASE_BRANCH}' still exists in paritytech/polkadot-sdk. Delete it once its pull request is merged or closed, then run this workflow again."
+              exit 1
+              ;;
+            *)
+              echo "::error::Could not check for '${CRATES_RELEASE_BRANCH}' in paritytech/polkadot-sdk (git ls-remote exited with ${rc})"
+              exit 1
+              ;;
+          esac
+          git checkout -b "$CRATES_RELEASE_BRANCH"
+
+      - name: Find the last final tag of the line
+        id: last_final
+        run: |
+          # Nearest final tag reachable from the branch tip; empty on a new line.
+          last_final=$(git describe --tags --abbrev=0 \
+            --match "polkadot-${STABLE_BRANCH}" --match "polkadot-${STABLE_BRANCH}-[0-9]*" \
+            --exclude '*-rc*' HEAD 2>/dev/null || true)
+          echo "Last final tag of ${STABLE_BRANCH}: ${last_final:-none}"
+          echo "tag=${last_final}" >> "$GITHUB_OUTPUT"
+
+      - name: Install parity-publish
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends libcurl4-openssl-dev pkg-config
+          cargo install parity-publish@0.10.17 --locked -q
+
+      # See the find-baseline job. Without this the plan below would continue from
+      # versions that were never published.
+      - name: Start from the newest published plan
+        if: needs.find-baseline.outputs.replan == 'true'
+        run: |
+          if [[ "$BASELINE" == none ]]; then
+            echo "Nothing of this branch was published: planning from scratch"
+            rm -f Plan.toml
+          else
+            echo "Planning from the Plan.toml of $(git log -1 --format='%h %s' "$BASELINE")"
+            git show "${BASELINE}:Plan.toml" > Plan.toml
+          fi
+
+      # What still has to be planned:
+      #   * the prdocs at top level, added since the last prepare run;
+      #   * the ones an earlier, unpublished prepare run already moved into the
+      #     release folder;
+      #   * on a line that never published, the whole release folder, which the
+      #     branch-off filled.
+      - name: Collect the prdocs to plan
+        run: |
+          shopt -s nullglob
+          rm -rf "$PRDOC_DIR"
+          mkdir -p "$PRDOC_DIR"
+
+          files=(prdoc/pr_*.prdoc)
+          if [[ "$BASELINE" == none ]]; then
+            files+=(prdoc/"$RELEASE_NAME"/*.prdoc)
+          elif [[ "$REPLAN" == true ]]; then
+            while IFS= read -r file; do
+              [[ -f "$file" ]] && files+=("$file")
+            done < <(git diff --name-only --no-renames --diff-filter=A "$BASELINE" HEAD -- "prdoc/${RELEASE_NAME}/")
+          fi
+
+          if ((${#files[@]} == 0)); then
+            echo "::warning::No prdocs to plan for ${RELEASE_NAME}: no crate will be bumped"
+          else
+            cp "${files[@]}" "$PRDOC_DIR/"
+            echo "${#files[@]} prdocs to plan:"
+            printf '  %s\n' "${files[@]}"
+          fi
+
+      - name: Run parity-publish plan
+        run: |
+          echo "Running parity-publish plan..."
+          parity-publish plan --prdoc "$PRDOC_DIR"
+
+      - name: Set umbrella crate version for new stable release
+        if: needs.validate-inputs.outputs.IS_PATCH != 'true'
+        run: |
+          # Extract numeric part from release base branch (e.g., stable2603 -> 2603, unstable2603 -> 2603)
+          case "$STABLE_BRANCH" in
+            stable*)   VERSION_PREFIX="${STABLE_BRANCH#stable}" ;;
+            unstable*) VERSION_PREFIX="${STABLE_BRANCH#unstable}" ;;
+            *)
+              echo "::error::Expected branch to start with 'stable' or 'unstable', got: $STABLE_BRANCH"
+              exit 1
+              ;;
+          esac
+          UMBRELLA_VERSION="${VERSION_PREFIX}.0.0"
+
+          # Once an rc of this line is published, so is the umbrella crate under this
+          # prefix. Setting it back to .0.0 would name a version the registry already
+          # has, and release-stable-80 would skip the crate: its version is the plan's.
+          if [[ "$BASELINE" != none ]]; then
+            published=$(git show "${BASELINE}:Plan.toml" |
+              awk -F'"' '/^name = "polkadot-sdk"$/{found=1} found && /^to = /{print $2; exit}')
+            if [[ "$published" == "${VERSION_PREFIX}."* ]]; then
+              echo "polkadot-sdk ${published} is already published for this line: the plan decides its next version"
+              grep -B1 -A6 'name = "polkadot-sdk"' Plan.toml
+              exit 0
+            fi
+          fi
+
+          echo "Setting polkadot-sdk umbrella crate version to ${UMBRELLA_VERSION}"
+
+          # Find the line number of the polkadot-sdk name entry
+          LINE=$(grep -n '^name = "polkadot-sdk"$' Plan.toml | cut -d: -f1)
+          if [ -z "$LINE" ]; then
+            echo "::error::polkadot-sdk entry not found in Plan.toml"
+            exit 1
+          fi
+
+          # The 'to' line is 2 lines after 'name' (name, from, to)
+          TO_LINE=$((LINE + 2))
+
+          # Replace the 'to' version
+          sed -i "${TO_LINE}s/^to = \".*\"/to = \"${UMBRELLA_VERSION}\"/" Plan.toml
+
+          # Insert bump and reason after the 'to' line if not already present
+          if ! sed -n "$((TO_LINE + 1))p" Plan.toml | grep -q '^bump'; then
+            sed -i "${TO_LINE}a bump = \"major\"\nreason = \"changed\"" Plan.toml
+          fi
+
+          echo "polkadot-sdk entry in Plan.toml:"
+          grep -B1 -A6 'name = "polkadot-sdk"' Plan.toml
+
+      # Compared with the last final tag, not with the branch tip, so the list
+      # covers the whole release on every run and not only the latest fix.
+      - name: Generate the crates list for the release notes
+        if: needs.validate-inputs.outputs.IS_PATCH == 'true'
+        env:
+          LAST_FINAL: ${{ steps.last_final.outputs.tag }}
+        run: |
+          mkdir -p release-artifacts
+          diff_file="release-artifacts/changed_crates_${RELEASE_NAME}.txt"
+
+          if [[ -n "$LAST_FINAL" ]] && git cat-file -e "${LAST_FINAL}:Plan.toml" 2>/dev/null; then
+            since=$LAST_FINAL
+          elif [[ "$BASELINE" != none ]]; then
+            since=$BASELINE
+          else
+            since=HEAD
+          fi
+          echo "Crates changed since ${since}:"
+          git diff "$since" -- Plan.toml > "$diff_file"
+          cat "$diff_file"
+
+          python3 scripts/release/parse-crates-names.py "$diff_file" scripts/release/templates/crates_list.md.tera
+
+          echo "Crates list:"
+          cat scripts/release/templates/crates_list.md.tera
+
+      - name: Commit Plan.toml and crates list
+        run: |
+          . ./.github/scripts/release/release_lib.sh
+
+          git add Plan.toml
+          if [ "$IS_PATCH" = true ]; then
+            git add scripts/release/templates/crates_list.md.tera
+          fi
+
+          if [[ -n $(git status --porcelain) ]]; then
+            commit_with_message "chore: update Plan.toml and crates list for $RELEASE_NAME"
+            # commit_with_message does not fail when the commit does (a signing error,
+            # for one), and the validation below ends in a hard reset: the new plan
+            # would be gone and the pull request would be opened without it.
+            if [[ -n $(git status --porcelain --untracked-files=no) ]]; then
+              echo "::error::Plan.toml was not committed: see the output of git commit above"
+              exit 1
+            fi
+            echo "Committed Plan.toml and crates list"
+          else
+            echo "No changes to commit"
+          fi
+
+      # ---- Validation. Nothing from here to the reset below is committed. ----
+      #
+      # This puts the workspace into the state release-stable-80 publishes from
+      # (manifests rewritten for the registry) and checks that it builds, so a
+      # problem shows up now and not after the rc is tagged and gated.
+
+      - name: Rewrite the manifests as they will be published
+        run: |
+          parity-publish apply
+          cargo update --workspace --offline || cargo update --workspace
+
+      - name: Verify the workspace compiles
+        env:
+          SKIP_WASM_BUILD: 1
+        run: |
+          echo "Checking that rewritten manifests compile (WASM build skipped)..."
+          cargo check --workspace --all-targets 2>&1
+          echo "Workspace compiles successfully"
+
+      # Advisory. cargo may refuse to package a crate whose bumped dependency is not
+      # on the registry yet, which says nothing about the release. Read the output
+      # for packaging errors (missing files, bad metadata); the build check above is
+      # the one that has to pass. Parallel mode, because the serial one waits a
+      # minute between crates even in a dry run. `-p` reads the token variable in a
+      # dry run too; nothing is uploaded, so it gets a placeholder.
+      - name: Dry-run the publish
+        continue-on-error: true
+        env:
+          PARITY_PUBLISH_CRATESIO_TOKEN: dry-run-no-token
+        run: |
+          parity-publish apply -p -d --allow-dirty -j 8 --no-verify
+
+      - name: Drop everything the validation touched
+        run: |
+          git reset --hard HEAD
+          git clean -fdq
+
+      # ---- End of validation ----
+
+      # Takes the manifests of the branch tip and sets only the planned versions,
+      # then updates Cargo.lock: the bumps without the registry rewrite.
+      - name: Bump the crate versions
+        run: |
+          . ./.github/scripts/release/release_lib.sh
+
+          parity-publish restore --from HEAD
+
+          git add -A
+          if [[ -n $(git status --porcelain) ]]; then
+            commit_with_message "chore: bump crate versions for $RELEASE_NAME"
+            echo "Version bumps committed"
+          else
+            echo "No version changed"
+          fi
+
+      # NODE_VERSION and spec_version are bumped once per release. With a final tag
+      # on the line, "already bumped" means the value differs from the one at that
+      # tag. A new line has no final tag and got both values at branch-off, so it is
+      # only bumped when asked, and only by the first prepare run.
+      - name: Bump NODE_VERSION
+        if: inputs.bump_node_version == 'yes'
+        env:
+          LAST_FINAL: ${{ steps.last_final.outputs.tag }}
+        run: |
+          . ./.github/scripts/release/release_lib.sh
+
+          node_version() { grep 'pub const NODE_VERSION' | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"'; }
+
+          bumped=false
+          for FILE in polkadot/node/primitives/src/lib.rs cumulus/polkadot-omni-node/lib/src/nodes/mod.rs; do
+            current_version=$(node_version < "$FILE")
+
+            if [[ -n "$LAST_FINAL" ]]; then
+              released_version=$(git show "${LAST_FINAL}:${FILE}" | node_version)
+              if [[ "$current_version" != "$released_version" ]]; then
+                echo "$FILE: already bumped for this release (${released_version} at ${LAST_FINAL}, ${current_version} now)"
+                continue
+              fi
+            elif [[ "$FIRST_PREPARE" != true ]]; then
+              echo "$FILE: not bumped, an earlier prepare run of this new line was the one to do it (${current_version})"
+              continue
+            fi
+
+            new_version=$(echo "$current_version" | awk -F. '{print $1"."$2"."$3+1}')
+            sed -i.bak "s/NODE_VERSION: &'static str = \"$current_version\"/NODE_VERSION: \&'static str = \"$new_version\"/" "$FILE"
+            rm -f "$FILE.bak"
+            bumped=true
+            echo "$FILE: bumped NODE_VERSION from $current_version to $new_version"
+          done
+
+          if [[ "$bumped" == true ]]; then
+            NODE_VERSION=$(node_version < polkadot/node/primitives/src/lib.rs)
+            commit_with_message "Bump NODE_VERSION to $NODE_VERSION"
+          fi
+
+      - name: Bump spec_version
+        if: inputs.bump_spec_version == 'yes'
+        env:
+          LAST_FINAL: ${{ steps.last_final.outputs.tag }}
+        run: |
+          . ./.github/scripts/release/release_lib.sh
+
+          # Westend stands for all runtimes: they are bumped together.
+          spec_version() { grep -oP 'spec_version:\s*\K[0-9]+_[0-9]+_[0-9]+' | head -1; }
+          WESTEND=polkadot/runtime/westend/src/lib.rs
+          current_spec=$(spec_version < "$WESTEND")
+
+          if [[ -n "$LAST_FINAL" ]]; then
+            released_spec=$(git show "${LAST_FINAL}:${WESTEND}" | spec_version)
+            if [[ "$current_spec" != "$released_spec" ]]; then
+              echo "spec_version already bumped for this release (${released_spec} at ${LAST_FINAL}, ${current_spec} now)"
+              exit 0
+            fi
+          elif [[ "$FIRST_PREPARE" != true ]]; then
+            echo "spec_version not bumped: an earlier prepare run of this new line was the one to do it (${current_spec})"
+            exit 0
+          fi
+
+          FILE="polkadot/node/primitives/src/lib.rs"
+          NODE_VERSION=$(grep 'pub const NODE_VERSION' "$FILE" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
+
+          # Determine if this is a patch release or new stable release
+          patch=$(echo "$NODE_VERSION" | awk -F'[.-]' '{print $3}')
+          if [ "$patch" -gt 0 ]; then
+            IS_PATCH_RELEASE="true"
+            echo "📋 Patch release detected (patch=$patch) - bumping spec_version patch part"
+          else
+            IS_PATCH_RELEASE="false"
+            echo "📋 New stable release detected - bumping spec_version minor part"
+          fi
+
+          # One path per word.
+          runtimes_list=$(get_filtered_runtimes_list)
+
+          for f in $runtimes_list; do
+              new_version=$(bump_spec_version "$f" "$IS_PATCH_RELEASE")
+              echo " 🔄  $f → spec_version: $new_version"
+          done
+
+          commit_with_message "Bump spec_version for $([ "$IS_PATCH_RELEASE" = "true" ] && echo "patch" || echo "stable") release"
+
+      # After planning: the plan above read these files from where they were.
+      # release-stable-80 refuses a commit that still has prdocs at top level, which
+      # is how it knows that this workflow ran after the last backport.
+      - name: Move prdocs to release folder
+        run: |
+          . ./.github/scripts/release/release_lib.sh
+
+          reorder_prdocs "$RELEASE_NAME"
+
+      # commit_with_message does not fail when a commit does. Whatever is still
+      # uncommitted here would be missing from the pull request.
+      - name: Check that every change was committed
+        run: |
+          if [[ -n $(git status --porcelain --untracked-files=no) ]]; then
+            echo "::error::One of the commits above failed, these changes are left uncommitted:"
+            git status --short --untracked-files=no
+            exit 1
+          fi
+
+      # Generated here rather than at the start: app tokens expire after an hour,
+      # and the steps above can take longer.
+      - name: Generate token for paritytech/polkadot-sdk
+        id: generate_write_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+            client-id: ${{ vars.RELEASE_AUTOMATION_CLIENT_ID }}
+            private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
+            owner: paritytech
+            repositories: polkadot-sdk
+
+      - name: Push the release branch
+        env:
+          TOKEN: ${{ steps.generate_write_token.outputs.token }}
+        run: |
+          if [[ -z $(git log --oneline "origin/${STABLE_BRANCH}..HEAD") ]]; then
+            echo "::error::Nothing changed for ${RELEASE_NAME}: no crate to bump, no version to bump and no prdoc to move"
+            exit 1
+          fi
+          echo "Pushing branch $CRATES_RELEASE_BRANCH to paritytech/polkadot-sdk..."
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/paritytech/polkadot-sdk.git"
+          git push origin "$CRATES_RELEASE_BRANCH"
+
+      - name: Create Pull Request to base release branch
+        env:
+          GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}
+        run: |
+          TARGET_REPO="paritytech/polkadot-sdk"
+
+          gh pr create \
+            --repo "$TARGET_REPO" \
+            --title "[${STABLE_BRANCH}] Prepare the crates release ${RELEASE_NAME}" \
+            --body "Automated PR that prepares the crates release \`${RELEASE_NAME}\`. Nothing is published yet: the crates are published from the rc that is tagged on this change, after the e2e gate has passed.
+
+          - Plan.toml with the planned crate versions (and the crates list for the release notes)
+          - Crate version bumps and Cargo.lock
+          - NODE_VERSION bump (if selected and not done yet for this release)
+          - spec_version bump (if selected and not done yet for this release)
+          - PRDocs moved into the release folder
+
+          ⚠️ If spec_version was not bumped here and the runtimes changed, bump it manually: the e2e gate only accepts runtimes ahead of live Westend." \
+            --base "$STABLE_BRANCH" \
+            --head "$CRATES_RELEASE_BRANCH"
+
+      - name: Notify RelEng on failure or cancellation
+        if: failure() || cancelled()
+        uses: s3krit/matrix-message-action@70ad3fb812ee0e45ff8999d6af11cafad11a6ecf # v0.0.3
+        with:
+          room_id: '!GvAyzgCDgaVrvibaAF:parity.io'
+          access_token: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
+          server: m.parity.io
+          message: |
+            **Prepare Crates Release workflow did not complete** for `${{ inputs.release_name }}`.<br/>
+            Nothing was published. If branch `${{ needs.validate-inputs.outputs.CRATES_RELEASE_BRANCH }}` was pushed, delete it before running the workflow again.<br/>
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
