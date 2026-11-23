@@ -54,14 +54,24 @@ on:
         required: true
         type: string
 
+      skip_e2e_gate:
+        description: Proceed without a passing e2e gate verdict on this rc. Only for releases the gate cannot test (older stable lines, crates-only releases)
+        required: false
+        default: false
+        type: boolean
+
 jobs:
 
-  # Fails fast on a bad tag before anything is promoted. Each called workflow runs
-  # the guard again for itself, since each can also be dispatched on its own.
+  # Fails fast on a bad tag, or an rc that has not passed the e2e gate, before
+  # anything is promoted. Each called workflow runs the guard again for itself,
+  # since each can also be dispatched on its own; `skip_e2e_gate` is passed on to
+  # all of them.
   guard:
     uses: ./.github/workflows/release-guard.yml
     with:
       release_tag: ${{ inputs.release_tag }}
+      require_e2e_gate: true
+      skip_e2e_gate: ${{ inputs.skip_e2e_gate }}
 
   # ==============================================
   # PHASE 1: Promote RC to Final on S3
@@ -73,6 +83,7 @@ jobs:
     with:
       binary: ${{ inputs.binary }}
       release_tag: ${{ inputs.release_tag }}
+      skip_e2e_gate: ${{ inputs.skip_e2e_gate }}
 
     secrets: inherit
 
@@ -86,6 +97,7 @@ jobs:
     with:
       tag: ${{ needs.promote-rc-to-final.outputs.final_tag }}
       source_tag: ${{ inputs.release_tag }}
+      skip_e2e_gate: ${{ inputs.skip_e2e_gate }}
       distribution: release
 
     secrets: inherit
@@ -97,6 +109,7 @@ jobs:
     with:
       tag: ${{ needs.promote-rc-to-final.outputs.final_tag }}
       source_tag: ${{ inputs.release_tag }}
+      skip_e2e_gate: ${{ inputs.skip_e2e_gate }}
       distribution: ${{ inputs.distribution }}
 
     secrets: inherit
@@ -117,6 +130,7 @@ jobs:
       version: ${{ inputs.version }}
       stable_tag: ${{ needs.promote-rc-to-final.outputs.final_tag }}
       source_tag: ${{ inputs.release_tag }}
+      skip_e2e_gate: ${{ inputs.skip_e2e_gate }}
 
     secrets: inherit
     permissions:
@@ -136,6 +150,7 @@ jobs:
       version: ${{ inputs.version }}
       stable_tag: ${{ needs.promote-rc-to-final.outputs.final_tag }}
       source_tag: ${{ inputs.release_tag }}
+      skip_e2e_gate: ${{ inputs.skip_e2e_gate }}
 
     secrets: inherit
     permissions:
@@ -155,6 +170,7 @@ jobs:
       version: ${{ inputs.version }}
       stable_tag: ${{ needs.promote-rc-to-final.outputs.final_tag }}
       source_tag: ${{ inputs.release_tag }}
+      skip_e2e_gate: ${{ inputs.skip_e2e_gate }}
 
     secrets: inherit
     permissions:
@@ -174,6 +190,7 @@ jobs:
       version: ${{ inputs.version }}
       stable_tag: ${{ needs.promote-rc-to-final.outputs.final_tag }}
       source_tag: ${{ inputs.release_tag }}
+      skip_e2e_gate: ${{ inputs.skip_e2e_gate }}
 
     secrets: inherit
     permissions:
@@ -193,6 +210,7 @@ jobs:
       version: ${{ inputs.version }}
       stable_tag: ${{ needs.promote-rc-to-final.outputs.final_tag }}
       source_tag: ${{ inputs.release_tag }}
+      skip_e2e_gate: ${{ inputs.skip_e2e_gate }}
 
     secrets: inherit
     permissions:

@@ -118,6 +118,20 @@ jobs:
             echo "first_rc=true" >> $GITHUB_OUTPUT
           fi
 
+      # release-stable-15 moves every prdoc into the release folder when it prepares
+      # the crates release. One at top level was merged after its last run (or it
+      # never ran), so release-stable-80 will refuse to publish crates from this rc.
+      # Only a warning: an early rc for testing does not need the crates prepared.
+      - name: Warn if the crates release is not prepared on this commit
+        env:
+          RC_TAG: ${{ steps.compute_tag.outputs.new_tag }}
+        run: |
+          shopt -s nullglob
+          unprepared=(prdoc/pr_*.prdoc)
+          if ((${#unprepared[@]} > 0)); then
+            echo "::warning title=Crates release not prepared::${RC_TAG} is tagged on a commit with ${#unprepared[@]} prdoc(s) that release-stable-15 has not planned yet. Crates cannot be published from this rc: run release-stable-15, merge its pull request and tag the next rc."
+          fi
+
       - name: Apply new tag
         env:
           GH_TOKEN: ${{ steps.generate_write_token.outputs.token }}

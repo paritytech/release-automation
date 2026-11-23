@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+#
+# Stand-in for `curl` used by test-publish-record.sh. Answers sparse index
+# lookups from fixture files instead of a registry, the way publish-record.sh
+# calls curl: the body goes to the `-o` file and the HTTP status to stdout.
+#
+#   $FAKE_CURL_FIXTURES/<crate>        index file of <crate>, answered with 200
+#   $FAKE_CURL_FIXTURES/<crate>.code   answer with this HTTP status instead (e.g. 503)
+#   neither                            404, like the index for an unknown crate
+#
+# Every URL is appended to $FAKE_CURL_FIXTURES/calls so tests can assert which
+# index was asked, and that a case halted before reaching it.
+
+set -euo pipefail
+
+: "${FAKE_CURL_FIXTURES:?FAKE_CURL_FIXTURES is required}"
+
+out="" url=""
+while (($#)); do
+	case "$1" in
+	-o)
+		out=$2
+		shift 2
+		;;
+	-w | --retry | --max-time) shift 2 ;;
+	-*) shift ;;
+	*)
+		url=$1
+		shift
+		;;
+	esac
+done
+
+[[ -n "$out" && -n "$url" ]] || {
+	echo "fake-curl: expected -o <file> and a URL" >&2
+	exit 2
+}
+
+echo "$url" >>"${FAKE_CURL_FIXTURES}/calls"
+
+crate=${url##*/}
+if [[ -f "${FAKE_CURL_FIXTURES}/${crate}.code" ]]; then
+	: >"$out"
+	code=$(<"${FAKE_CURL_FIXTURES}/${crate}.code")
+elif [[ -f "${FAKE_CURL_FIXTURES}/${crate}" ]]; then
+	cp "${FAKE_CURL_FIXTURES}/${crate}" "$out"
+	code=200
+else
+	echo '{"errors":[{"detail":"Not Found"}]}' >"$out"
+	code=404
+fi
+printf '%s' "$code"

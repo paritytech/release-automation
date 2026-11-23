@@ -1,5 +1,21 @@
 name: Stable Release - Combined Builds Flow
 
+# Builds the binaries and runtimes of a release candidate, runs the e2e gate on
+# them and creates the release draft.
+#
+# The e2e gate decides whether this rc may be published. Its verdict is recorded
+# as the commit status `release/e2e-gate` on the rc's commit in polkadot-sdk, and
+# release-guard.yml requires a passing one in every workflow that publishes
+# (release-stable-80, 70, 31, 40, 41, 50 and 32). The draft waits for the gate too.
+#
+# Gated: runs with `binary: all` and either all runtimes (`chain: all`) or
+# `no_runtimes`. With runtimes the fork is upgraded to them, which only works
+# while they are ahead of live Westend. With `no_runtimes` the new binaries run
+# the fork on Westend's current runtimes. A partial rebuild (single binary or
+# chain) is not gated and leaves an existing verdict as it is, and so does a run
+# with `skip_e2e_gate`: the verdict belongs to the commit, and a rebuild of the
+# same commit does not void it.
+
 on:
   workflow_dispatch:
     inputs:
@@ -52,6 +68,11 @@ on:
         required: true
         type: boolean
         default: false
+      skip_e2e_gate:
+        description: Do not run the e2e gate. Only for releases it cannot test (older stable lines whose runtimes are behind live Westend). This run records no verdict and leaves an earlier one on the commit untouched. Without a passing one the publishing workflows need skip_e2e_gate as well
+        required: true
+        type: boolean
+        default: false
 
 jobs:
   # Fails fast on a bad tag before any build starts. Each called workflow runs
@@ -60,6 +81,8 @@ jobs:
     uses: ./.github/workflows/release-guard.yml
     with:
       release_tag: ${{ inputs.release_tag }}
+      # This workflow produces the verdict.
+      require_e2e_gate: false
 
   build-runtimes-flow:
     if: ${{ inputs.no_runtimes == false }}
@@ -87,9 +110,328 @@ jobs:
       attestations: write
       contents: read
 
+  # ==============================================
+  # E2E gate
+  # ==============================================
+
+  # Decides whether this run is gated, and if so voids any earlier verdict on the
+  # commit right away: from here on the publishing workflows wait for this run.
+  # Every other gate job keys on this job's result, so the scope is written once.
+  mark-e2e-pending:
+    needs: [guard]
+    if: ${{ inputs.binary == 'all' && !inputs.skip_e2e_gate && (inputs.no_runtimes || inputs.chain == 'all') }}
+    runs-on: ubuntu-latest
+    # The App key is a secret of this environment.
+    environment: release
+    permissions: {}
+    steps:
+      - name: Assert the guard ran
+        env:
+          GUARD_SHA: ${{ needs.guard.outputs.sha }}
+        run: '[[ "$GUARD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No verified SHA from the release guard"; exit 1; }'
+
+      - name: Generate a commit status token for polkadot-sdk
+        id: status_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_AUTOMATION_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
+          owner: paritytech
+          repositories: polkadot-sdk
+          permission-statuses: write
+
+      - name: Mark the e2e gate as pending
+        env:
+          GH_TOKEN: ${{ steps.status_token.outputs.token }}
+          GUARD_SHA: ${{ needs.guard.outputs.sha }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/paritytech/polkadot-sdk/statuses/${GUARD_SHA}" \
+            -f state=pending \
+            -f context=release/e2e-gate \
+            -f description="E2E gate running for ${RELEASE_TAG}" \
+            -f target_url="$RUN_URL" \
+            --jq '"status \(.state) posted on \(.url)"'
+
+  # The e2e gate wants polkadot and its two PVF workers side by side in ONE artifact
+  # (the engine copies the workers from the directory polkadot sits in), while the
+  # build stage uploads one artifact per binary. Collect the linux x86_64 node
+  # binaries Westend runs on into a single artifact for the gate.
+  bundle-e2e-binaries:
+    needs: [guard, mark-e2e-pending, build-rc-flow]
+    if: ${{ !cancelled() && needs.mark-e2e-pending.result == 'success' && needs.build-rc-flow.result == 'success' }}
+    runs-on: parity-default
+    permissions:
+      contents: read
+    steps:
+      - name: Assert the guard ran
+        env:
+          GUARD_SHA: ${{ needs.guard.outputs.sha }}
+        run: '[[ "$GUARD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No verified SHA from the release guard"; exit 1; }'
+
+      - name: Download node binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: "{polkadot,polkadot-prepare-worker,polkadot-execute-worker,polkadot-parachain}_x86_64-unknown-linux-gnu"
+          path: incoming
+          merge-multiple: true
+
+      # The polkadot artifact also carries the deb and rpm packages, signatures and
+      # checksums. The gate needs the four binaries and nothing else.
+      - name: Collect the binaries
+        run: |
+          mkdir e2e-node-binaries
+          for binary in polkadot polkadot-prepare-worker polkadot-execute-worker polkadot-parachain; do
+            if [ ! -f "incoming/$binary" ]; then
+              echo "::error::$binary is missing from the build artifacts"
+              ls -la incoming
+              exit 1
+            fi
+            cp "incoming/$binary" "e2e-node-binaries/$binary"
+            # Artifacts do not keep the executable bit.
+            chmod +x "e2e-node-binaries/$binary"
+          done
+          ls -la e2e-node-binaries
+
+      # --version prints NODE_VERSION-<commit hash>. The final tag is put on the rc's
+      # commit and promotion copies these binaries without rebuilding them, so the
+      # hash has to be this commit's: that is what the released binary will report.
+      - name: Check the binaries carry the rc commit's hash
+        working-directory: e2e-node-binaries
+        env:
+          GUARD_SHA: ${{ needs.guard.outputs.sha }}
+        run: |
+          short=${GUARD_SHA:0:11}
+          for binary in polkadot polkadot-parachain; do
+            version=$("./$binary" --version)
+            echo "$version"
+            if [[ "$version" != *"-${short}"* ]]; then
+              echo "::error::$binary reports '${version}', which does not carry the rc commit's hash ${short}"
+              exit 1
+            fi
+          done
+
+      - name: Upload the bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-node-binaries
+          path: e2e-node-binaries
+          retention-days: 7
+
+  # Forks live Westend (relay, Asset Hub, People), spawns it on the node binaries
+  # built in this run, upgrades the three chains to the runtimes built in this run
+  # and runs the chain tests against the result. With `no_runtimes` no runtime is
+  # supplied, and the chains stay on what the fork took from live.
+  #
+  # BLOCKING: the draft below waits for this job, and its result becomes the verdict
+  # the publishing workflows require.
+  #
+  # The gate fails, with its own message, when a supplied runtime's spec_version is
+  # not above what the chain runs. Such a release cannot be gated with runtimes and
+  # is released with `skip_e2e_gate`.
+  #
+  # The gate's concurrency group is this workflow's name and ref, with
+  # cancel-in-progress: two gated runs of this workflow cancel each other's gate,
+  # also across release lines. Run one gated rc at a time.
+  e2e-gate:
+    needs: [bundle-e2e-binaries, build-runtimes-flow]
+    # The runtime build is skipped with `no_runtimes`, which would skip this job too.
+    if: >-
+      ${{ !cancelled()
+          && needs.bundle-e2e-binaries.result == 'success'
+          && (inputs.no_runtimes || needs.build-runtimes-flow.result == 'success') }}
+    # The called workflow inherits this token. It only reads this run's artifacts and
+    # public releases, so it gets nothing else — and no secrets.
+    permissions:
+      contents: read
+    # Pinned to a commit so a change to the gate's inputs or a broken workflow file
+    # upstream cannot fail this whole workflow at startup. Only the workflow FILE is
+    # pinned: the gate checks out its code and network manifests from `gate_ref`
+    # (default: its main branch), so the manifests keep tracking what live Westend runs.
+    #
+    # Bump the pin when the gate's workflow file changes upstream: the file pinned here
+    # drives scripts taken from main, and the two can drift apart. Keep it the same as
+    # in release-01_combined-flow.yml.
+    uses: paritytech/polkadot-pop-e2e/.github/workflows/release-gate.yml@f1a554907ec115029b7c4a63818cfc2a9da30af0
+    with:
+      advisory: false
+      environment: westend
+      binary_polkadot: "artifact:e2e-node-binaries"
+      binary_polkadot_parachain: "artifact:e2e-node-binaries"
+      # srtool uploads one `<chain>-runtime` artifact per runtime. The glob collects
+      # them all and the gate picks each chain's wasm by the spec_name it declares.
+      runtime_relay: ${{ !inputs.no_runtimes && 'artifact:*-runtime' || '' }}
+      runtime_asset_hub: ${{ !inputs.no_runtimes && 'artifact:*-runtime' || '' }}
+      runtime_people: ${{ !inputs.no_runtimes && 'artifact:*-runtime' || '' }}
+      runs_on: parity-large
+
+  # Replaces the pending status with the verdict. Runs whenever the run is gated,
+  # so a cancelled run or a failed build does not leave the commit pending
+  # forever: anything but a finished gate is recorded as an error. That includes
+  # a run whose pending status could not be posted: an earlier verdict is then
+  # still on the commit, and this run must not end with it standing.
+  record-e2e-verdict:
+    needs: [guard, mark-e2e-pending, bundle-e2e-binaries, e2e-gate]
+    if: ${{ always() && needs.guard.result == 'success' && needs.mark-e2e-pending.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions: {}
+    steps:
+      - name: Assert the guard ran
+        env:
+          GUARD_SHA: ${{ needs.guard.outputs.sha }}
+        run: '[[ "$GUARD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No verified SHA from the release guard"; exit 1; }'
+
+      - name: Generate a commit status token for polkadot-sdk
+        id: status_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_AUTOMATION_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
+          owner: paritytech
+          repositories: polkadot-sdk
+          permission-statuses: write
+
+      - name: Record the e2e gate verdict
+        env:
+          GH_TOKEN: ${{ steps.status_token.outputs.token }}
+          GUARD_SHA: ${{ needs.guard.outputs.sha }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BUNDLE_RESULT: ${{ needs.bundle-e2e-binaries.result }}
+          GATE_RESULT: ${{ needs.e2e-gate.result }}
+          NO_RUNTIMES: ${{ inputs.no_runtimes }}
+        run: |
+          scope="binaries and runtimes"
+          [[ "$NO_RUNTIMES" == "true" ]] && scope="binaries only"
+
+          if [[ "$GATE_RESULT" == "success" ]]; then
+            state=success
+            description="E2E gate passed for ${RELEASE_TAG} (${scope})"
+          elif [[ "$GATE_RESULT" == "failure" ]]; then
+            state=failure
+            description="E2E gate failed for ${RELEASE_TAG} (${scope})"
+          elif [[ "$BUNDLE_RESULT" == "failure" ]]; then
+            # Not a verdict of the gate, but no accident either: a node binary is
+            # missing or does not report the rc commit.
+            state=failure
+            description="E2E gate could not start for ${RELEASE_TAG}: bundling the node binaries failed"
+          else
+            # Cancelled, or never started because a build failed: there is no verdict.
+            state=error
+            description="E2E gate did not finish for ${RELEASE_TAG}: bundle ${BUNDLE_RESULT}, gate ${GATE_RESULT}"
+          fi
+
+          gh api --method POST "repos/paritytech/polkadot-sdk/statuses/${GUARD_SHA}" \
+            -f state="$state" \
+            -f context=release/e2e-gate \
+            -f description="$description" \
+            -f target_url="$RUN_URL" \
+            --jq '"status \(.state) posted on \(.url)"'
+
+          {
+            echo "### E2E gate verdict: ${state}"
+            echo
+            echo "${description}. Recorded as \`release/e2e-gate\` on \`${GUARD_SHA}\` in paritytech/polkadot-sdk."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Tells the release room whenever a gated run ends without a passing verdict,
+  # whatever the reason (the gate failed, was cancelled, could not start, or its
+  # verdict could not be recorded), and whenever a build runs with skip_e2e_gate.
+  notify-e2e-gate:
+    needs: [guard, build-runtimes-flow, build-rc-flow, mark-e2e-pending, bundle-e2e-binaries, e2e-gate, record-e2e-verdict]
+    if: >-
+      ${{ always()
+          && needs.guard.result == 'success'
+          && ( inputs.skip_e2e_gate
+               || ( needs.mark-e2e-pending.result != 'skipped'
+                    && ( needs.e2e-gate.result != 'success'
+                         || needs.record-e2e-verdict.result != 'success' ) ) ) }}
+    runs-on: ubuntu-latest
+    # The Matrix token is a secret of this environment.
+    environment: release
+    permissions: {}
+    steps:
+      # For a release the gate cannot test, the builds of this run are still good.
+      # release-stable-30 creates the draft from them, without building again.
+      - name: Say how to create the draft from this run
+        if: ${{ !inputs.skip_e2e_gate && needs.build-rc-flow.result == 'success' && (inputs.no_runtimes || needs.build-runtimes-flow.result == 'success') }}
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RUN_ID: ${{ github.run_id }}
+          NO_RUNTIMES: ${{ inputs.no_runtimes }}
+          RUNTIMES: ${{ needs.build-runtimes-flow.outputs.published_runtimes }}
+        run: |
+          {
+            echo "### Creating the release draft without the gate"
+            echo
+            echo "Only if this release cannot be gated. The builds of this run can be used as they are: dispatch \`release-stable-30\` with"
+            echo
+            echo "- \`release_tag\`: \`${RELEASE_TAG}\`"
+            echo "- \`build_run_id\`: \`${RUN_ID}\`"
+            echo "- \`no_runtimes\`: \`${NO_RUNTIMES}\`"
+            if [[ "$NO_RUNTIMES" != "true" ]]; then
+              echo "- \`runtimes\`: \`${RUNTIMES}\`"
+            fi
+            echo
+            echo "The publishing workflows then need \`skip_e2e_gate\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report a failed gate
+        if: ${{ !inputs.skip_e2e_gate && needs.e2e-gate.result == 'failure' }}
+        uses: s3krit/matrix-message-action@70ad3fb812ee0e45ff8999d6af11cafad11a6ecf # v0.0.3
+        with:
+          room_id: '!cqAmzdIcbOFwrdrubV:parity.io'
+          access_token: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
+          server: m.parity.io
+          message: |
+            **Stable release `${{ inputs.release_tag }}`: the e2e gate failed.** The release draft was not created, and the publishing workflows refuse this rc.<br/>
+            If the gate reports that a runtime's spec_version is not above what live Westend runs, this release cannot be gated. Nothing has to be built again: the summary of the run lists the inputs for `release-stable-30`, which creates the draft from this run's builds. The publishing workflows then need `skip_e2e_gate`.<br/>
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Report a run without a verdict
+        if: ${{ !inputs.skip_e2e_gate && needs.e2e-gate.result != 'failure' }}
+        uses: s3krit/matrix-message-action@70ad3fb812ee0e45ff8999d6af11cafad11a6ecf # v0.0.3
+        with:
+          room_id: '!cqAmzdIcbOFwrdrubV:parity.io'
+          access_token: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
+          server: m.parity.io
+          message: |
+            **Stable release `${{ inputs.release_tag }}`: this run ended without a passing e2e gate verdict.** Binary bundle: `${{ needs.bundle-e2e-binaries.result }}`, gate: `${{ needs.e2e-gate.result }}`, verdict record: `${{ needs.record-e2e-verdict.result }}`.<br/>
+            A cancelled gate usually means that another gated run of this workflow started, since only one gate runs at a time: run this flow again once that one is done. A failed binary bundle means that a node binary is missing or does not report the rc commit.<br/>
+            If the verdict record is not `success`, the status `release/e2e-gate` on the rc commit can be out of date: do not publish this rc before a gated run has passed.<br/>
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Report a build without the gate
+        if: ${{ inputs.skip_e2e_gate }}
+        uses: s3krit/matrix-message-action@70ad3fb812ee0e45ff8999d6af11cafad11a6ecf # v0.0.3
+        with:
+          room_id: '!cqAmzdIcbOFwrdrubV:parity.io'
+          access_token: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
+          server: m.parity.io
+          message: |
+            **Stable release `${{ inputs.release_tag }}`: a build was started with `skip_e2e_gate`** by ${{ github.actor }} (binary: `${{ inputs.binary }}`, chain: `${{ inputs.chain }}`, no_runtimes: `${{ inputs.no_runtimes }}`). This run records no e2e gate verdict.<br/>
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  # ==============================================
+  # Release draft
+  # ==============================================
+
+  # Both draft jobs wait for the gate. A gate that is out of scope for this run
+  # (mark-e2e-pending skipped) does not hold them back; a gate that failed, was
+  # cancelled or could not start does. `!cancelled()` with explicit results is
+  # needed because a skipped job in `needs` would otherwise skip the draft as well.
   trigger-release-draft-with-runtimes:
-    if: ${{ inputs.no_runtimes == false }}
-    needs: [build-runtimes-flow, build-rc-flow, guard]
+    needs: [guard, build-runtimes-flow, build-rc-flow, mark-e2e-pending, e2e-gate]
+    if: >-
+      ${{ !cancelled()
+          && inputs.no_runtimes == false
+          && needs.guard.result == 'success'
+          && needs.build-runtimes-flow.result == 'success'
+          && needs.build-rc-flow.result == 'success'
+          && (needs.mark-e2e-pending.result == 'skipped' || needs.e2e-gate.result == 'success') }}
     uses: "./.github/workflows/release-stable-30_publish_release_draft.yml"
     with:
       release_tag: ${{ inputs.release_tag }}
@@ -101,8 +443,13 @@ jobs:
     secrets: inherit
 
   trigger-release-draft-without-runtimes:
-    if: ${{ inputs.no_runtimes == true }}
-    needs: [build-rc-flow, guard]
+    needs: [guard, build-rc-flow, mark-e2e-pending, e2e-gate]
+    if: >-
+      ${{ !cancelled()
+          && inputs.no_runtimes == true
+          && needs.guard.result == 'success'
+          && needs.build-rc-flow.result == 'success'
+          && (needs.mark-e2e-pending.result == 'skipped' || needs.e2e-gate.result == 'success') }}
     uses: "./.github/workflows/release-stable-30_publish_release_draft.yml"
     with:
       release_tag: ${{ inputs.release_tag }}

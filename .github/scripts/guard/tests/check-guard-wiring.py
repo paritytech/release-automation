@@ -4,7 +4,8 @@
 Every workflow is checked, so a new one is covered by default. Two explicit
 allowlists are exempt from the checkout rules: stable workflows that check out
 a branch because no tag exists yet (BRANCH_CHECKOUTS), and the weekly pipeline,
-which the guard does not cover (WEEKLY_PIPELINE).
+which the guard does not cover (WEEKLY_PIPELINE). A third one lists the guard
+calls that do not require the e2e gate verdict (E2E_GATE_EXEMPT).
 
   1. every checkout of paritytech/polkadot-sdk takes `ref:` from the guard SHA
      (`needs.guard.outputs.sha`, or `inputs.sha` in a reusable workflow),
@@ -17,7 +18,12 @@ which the guard does not cover (WEEKLY_PIPELINE).
   4. every call to a reusable workflow that takes `sha` passes the guard SHA;
   5. in a workflow with a `dry_run` input, the release environment, signing,
      attestation and S3 upload are all skipped in a dry run, so a pull request
-     dry run never reaches them.
+     dry run never reaches them;
+  6. every call to the guard states `require_e2e_gate`. It is `true` unless the
+     workflow is listed in E2E_GATE_EXEMPT with the exact value it passes
+     instead, so a new workflow that publishes cannot leave the gate out. A
+     caller that can require the gate also takes `skip_e2e_gate` from its
+     operator, on every trigger, and passes it to the guard.
 
 Usage: python3 .github/scripts/guard/tests/check-guard-wiring.py [workflows dir]
 Requires: PyYAML.
@@ -47,8 +53,30 @@ LOCAL_CALL = re.compile(r"\A\./\.github/workflows/(.+\.yml)\Z")
 BRANCH_CHECKOUTS = {
     "release-stable-10_branchoff.yml",
     "release-stable-11_rc-automation.yml",
-    "release-stable-60_post-crates-release-activities.yml",
-    "release-stable-80_publish-crates.yml",
+    "release-stable-15_prepare-crates.yml",
+}
+
+# Rule 6. Guard calls that do not always require the e2e gate verdict, with the
+# exact value they pass for `require_e2e_gate`. Everything else passes `true`.
+GUARD_CALL = "./.github/workflows/release-guard.yml"
+SKIP_E2E_GATE_EXPR = "${{ inputs.skip_e2e_gate }}"
+E2E_GATE_EXEMPT = {
+    # These build what the gate tests, or run the gate itself.
+    "release-stable-20_build-rc.yml": False,
+    "release-stable-21_build-runtimes.yml": False,
+    "release-stable-22_combined-rc-runtime-builds-release-draft.yml": False,
+    # A draft is not a publication; release-stable-22 makes it wait for the gate.
+    "release-stable-30_publish_release_draft.yml": False,
+    # Adds the legacy tag to a release that is already published.
+    "release-stable-60_create-old-release-tag.yml": False,
+    # Packages for the staging repo are test artifacts, like the rc binaries on S3.
+    # Each expression is the opposite of what sends the package to that repo.
+    "release-stable-40_publish-deb-package.yml": "${{ inputs.distribution != 'staging' }}",
+    "release-stable-41_publish-rpm-package.yml": "${{ inputs.distribution == 'release' }}",
+    # rc images are test artifacts too.
+    "release-stable-50_publish-docker.yml": "${{ inputs.image_type == 'release' }}",
+    # Staging and dry runs publish nothing to crates.io.
+    "release-stable-80_publish-crates.yml": "${{ inputs.registry == 'crates.io' && !inputs.dry_run }}",
 }
 
 # The weekly pipeline is not covered by the guard (see release-guard.yml).
@@ -169,6 +197,32 @@ def check_dry_run(where, job):
     return errors
 
 
+def check_e2e_gate(name, where, job, wf):
+    """Rule 6."""
+    if str(job.get("uses", "")) != GUARD_CALL:
+        return []
+    w = job.get("with") or {}
+    if "require_e2e_gate" not in w:
+        return [f"{where}: calls the guard without require_e2e_gate"]
+
+    errors = []
+    want, got = E2E_GATE_EXEMPT.get(name, True), w["require_e2e_gate"]
+    # `True == 1` in Python, so compare the types as well.
+    if type(got) is not type(want) or got != want:
+        hint = "listed in E2E_GATE_EXEMPT" if name in E2E_GATE_EXEMPT else "add it to E2E_GATE_EXEMPT if it publishes nothing"
+        errors.append(f"{where}: passes require_e2e_gate={got!r}, expected {want!r} ({hint})")
+    if want is False:
+        return errors
+
+    if str(w.get("skip_e2e_gate", "")) != SKIP_E2E_GATE_EXPR:
+        errors.append(f"{where}: must pass skip_e2e_gate: {SKIP_E2E_GATE_EXPR} to the guard")
+    t = triggers(wf)
+    for trigger in ("workflow_dispatch", "workflow_call"):
+        if isinstance(t, dict) and trigger in t and "skip_e2e_gate" not in ((t[trigger] or {}).get("inputs") or {}):
+            errors.append(f"{where}: {trigger} has no skip_e2e_gate input for the operator's override")
+    return errors
+
+
 def main():
     wf_dir = Path(sys.argv[1] if len(sys.argv) > 1 else ".github/workflows")
     workflows = {p.name: yaml.safe_load(p.read_text()) or {} for p in sorted(wf_dir.glob("*.yml"))}
@@ -184,10 +238,11 @@ def main():
                 errors += check_checkouts(where, job, name in BRANCH_CHECKOUTS)
             errors += check_guard_needs(where, job)
             errors += check_sha_calls(where, job, workflows)
+            errors += check_e2e_gate(name, where, job, wf)
             if has_dry_run:
                 errors += check_dry_run(where, job)
 
-    for listed in sorted((BRANCH_CHECKOUTS | WEEKLY_PIPELINE) - workflows.keys()):
+    for listed in sorted((BRANCH_CHECKOUTS | WEEKLY_PIPELINE | E2E_GATE_EXEMPT.keys()) - workflows.keys()):
         errors.append(f"{listed} is allowlisted but does not exist; remove it from the allowlist")
 
     if errors:

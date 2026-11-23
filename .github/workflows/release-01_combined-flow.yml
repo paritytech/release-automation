@@ -294,8 +294,9 @@ jobs:
     # (default: its main branch), so the manifests keep tracking what live Westend runs.
     #
     # Bump the pin when the gate's workflow file changes upstream: the file pinned here
-    # drives scripts taken from main, and the two can drift apart.
-    uses: paritytech/polkadot-pop-e2e/.github/workflows/release-gate.yml@main
+    # drives scripts taken from main, and the two can drift apart. Keep it the same as
+    # in release-stable-22_combined-rc-runtime-builds-release-draft.yml.
+    uses: paritytech/polkadot-pop-e2e/.github/workflows/release-gate.yml@f1a554907ec115029b7c4a63818cfc2a9da30af0
     with:
       advisory: true
       environment: westend

@@ -3,9 +3,12 @@
 # Stand-in for `gh` used by test-verify-release-ref.sh. Serves `gh api <path>`
 # from fixture files instead of the GitHub API.
 #
-#   $FAKE_GH_FIXTURES/<path>          response body for <path>
+#   $FAKE_GH_FIXTURES/<path>.json     response body for <path>
 #   $FAKE_GH_FIXTURES/<path>.error    fail with this text on stderr (e.g. "HTTP 500")
 #   neither                           fail with "HTTP 404", like gh does
+#
+# The suffix keeps a path and its sub-paths apart: `commits/<sha>` is a file
+# next to the directory that holds `commits/<sha>/statuses`.
 #
 # Every call is appended to $FAKE_GH_FIXTURES/calls so tests can assert that a
 # case halted before reaching the API.
@@ -40,9 +43,10 @@ done
 
 echo "$path" >>"${FAKE_GH_FIXTURES}/calls"
 
-file="${FAKE_GH_FIXTURES}/${path}"
-if [[ -f "${file}.error" ]]; then
-	echo "gh: $(<"${file}.error")" >&2
+base="${FAKE_GH_FIXTURES}/${path}"
+file="${base}.json"
+if [[ -f "${base}.error" ]]; then
+	echo "gh: $(<"${base}.error")" >&2
 	exit 1
 fi
 if [[ ! -f "$file" ]]; then

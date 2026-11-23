@@ -29,6 +29,8 @@ jobs:
     uses: ./.github/workflows/release-guard.yml
     with:
       release_tag: ${{ inputs.release_tag }}
+      # The release is already published when the legacy tag is added.
+      require_e2e_gate: false
 
   create-old-release-tag:
     needs: [ guard ]

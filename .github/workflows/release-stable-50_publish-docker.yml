@@ -56,6 +56,12 @@ on:
         required: false
         type: string
 
+      skip_e2e_gate:
+        description: Proceed without a passing e2e gate verdict on this commit (release images only). Only for releases the gate cannot test (older stable lines, crates-only releases)
+        required: false
+        default: false
+        type: boolean
+
   workflow_call:
     inputs:
       image_type:
@@ -97,6 +103,12 @@ on:
         required: false
         type: string
 
+      skip_e2e_gate:
+        description: Proceed without a passing e2e gate verdict on this commit (release images only). Only for releases the gate cannot test (older stable lines, crates-only releases)
+        required: false
+        default: false
+        type: boolean
+
 # Nothing is written to this repository; images go to the registry and
 # artifacts are only read from S3.
 permissions:
@@ -121,6 +133,10 @@ jobs:
     uses: ./.github/workflows/release-guard.yml
     with:
       release_tag: ${{ inputs.source_tag || inputs.stable_tag }}
+      # Release images are a publication, so the commit must have passed the e2e
+      # gate. rc images are test artifacts, like the rc binaries on S3.
+      require_e2e_gate: ${{ inputs.image_type == 'release' }}
+      skip_e2e_gate: ${{ inputs.skip_e2e_gate }}
 
   validate-inputs:
     needs: [guard]
