@@ -38,12 +38,21 @@ on:
           - auto
           - "true"
           - "false"
+      skip_e2e_gate:
+        description: Proceed without a passing e2e gate verdict on this rc. Only for releases the gate cannot test (older stable lines, crates-only releases)
+        required: false
+        default: false
+        type: boolean
 
 jobs:
+  # The final tag and the GitHub release are the publication itself, so the rc
+  # must have passed the e2e gate.
   guard:
     uses: ./.github/workflows/release-guard.yml
     with:
       release_tag: ${{ inputs.release_tag }}
+      require_e2e_gate: true
+      skip_e2e_gate: ${{ inputs.skip_e2e_gate }}
 
   validate-inputs:
     needs: [ guard ]

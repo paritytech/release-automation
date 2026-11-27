@@ -19,6 +19,11 @@ on:
         description: Tag matching the actual release candidate with the format polkadot-stableYYMM(-X)-rcX
         required: true
         type: string
+      skip_e2e_gate:
+        description: Proceed without a passing e2e gate verdict on this rc. Only for releases the gate cannot test (older stable lines, crates-only releases)
+        required: false
+        default: false
+        type: boolean
 
   workflow_call:
     inputs:
@@ -30,6 +35,11 @@ on:
         description: Tag matching the actual release candidate with the format polkadot-stableYYMM(-X)-rcX
         type: string
         required: true
+      skip_e2e_gate:
+        description: Proceed without a passing e2e gate verdict on this rc. Only for releases the gate cannot test (older stable lines, crates-only releases)
+        required: false
+        default: false
+        type: boolean
     outputs:
       final_tag:
         description: "Final release tag without RC suffix (e.g., polkadot-stableYYMM)"
@@ -40,10 +50,13 @@ jobs:
 
   # Verifies the rc tag and pins it to a commit. The node version read during
   # promotion comes from that commit; the release fork read it from master.
+  # Promoting publishes the binaries, so the rc must have passed the e2e gate.
   guard:
     uses: ./.github/workflows/release-guard.yml
     with:
       release_tag: ${{ inputs.release_tag }}
+      require_e2e_gate: true
+      skip_e2e_gate: ${{ inputs.skip_e2e_gate }}
 
   validate-inputs:
     needs: [ guard ]

@@ -1,16 +1,29 @@
-# Publishes crates from the tip of a stable or unstable branch of paritytech/polkadot-sdk and
-# pushes the resulting `post-crates-release-<release_name>` branch back to it.
+# Publishes the crates of a release from the commit of its rc tag.
 #
-# Crates are released from the stable branch rather than a tag, so release-guard
-# (which verifies tags) does not apply; the job is gated by the killswitch below
-# and by the `release` environment's required reviewers.
+# The versions were planned and committed beforehand by release-stable-15, and the rc
+# tagged on that commit has been built and gated by release-stable-22. This workflow
+# only rewrites the manifests for the registry in its own checkout and publishes:
+# nothing is committed and nothing is pushed. The published sources are those of the
+# rc commit, which is also the commit the final tag is put on.
+#
+# The one thing it writes to polkadot-sdk is the publish record: the commit status
+# `release/crates-published` on the rc commit (`release/crates-published-staging`
+# for staging.crates.io), `pending` when the publish starts, then `success` or
+# `failure`. release-stable-15 reads it to know which plan is published. A dry run
+# records nothing.
+#
+# A run that fails or is cancelled can be started again with the same tag: versions
+# that are already on crates.io are skipped. staging.crates.io differs, because
+# parity-publish looks for existing versions on crates.io only. There a second run
+# needs `publish_jobs`: the parallel mode passes over a crate the registry refuses
+# as already uploaded, the sequential one stops at it.
 name: Stable Release - Publish Crates
 
 on:
   workflow_dispatch:
     inputs:
-      release_name:
-        description: 'Release name (e.g., stable2509-3 or unstable2604). Base branch is derived by removing the last -N suffix.'
+      release_tag:
+        description: 'Tag of the rc being released, e.g. polkadot-stable2509-3-rc2 or polkadot-unstable2604-rc1. The crates are published from its commit.'
         required: true
         type: string
       registry:
@@ -21,31 +34,16 @@ on:
           - staging.crates.io
           - crates.io
         default: staging.crates.io
-      is_patch:
-        description: 'Is this a patch release? (Set to false for new stable releases)'
-        required: true
-        type: boolean
-        default: true
       dry_run:
         description: 'Dry run - do not actually publish crates'
         required: true
         type: boolean
         default: true
-      resume_from:
-        description: 'Resume from a specific phase after a failure. Use "full" for a fresh run.'
-        required: true
-        type: choice
-        options:
-          - full
-          - apply
-          - publish
-          - push
-        default: full
-      prdoc_path:
-        description: 'Path to the prdoc directory used by parity-publish plan to decide whci prdocs use for publishing'
+      skip_e2e_gate:
+        description: Publish to crates.io without a passing e2e gate verdict on this rc. Only for releases the gate cannot test (older stable lines, crates-only releases)
         required: false
-        type: string
-        default: prdoc
+        default: false
+        type: boolean
       publish_jobs:
         description: 'Number of parallel publish jobs (0 = sequential publishing, >0 = parallel with N jobs).'
         required: false
@@ -62,273 +60,217 @@ on:
         type: string
         default: '0'
 
-# Everything is written to paritytech/polkadot-sdk with the app token.
+# No repository content is written. The publish record is posted with an App token.
 permissions:
   contents: read
 
+# Two runs for the same rc would publish the same crates against each other and
+# write the publish record in turns.
+concurrency:
+  group: release-stable-80-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
 jobs:
-  # Replaces the release fork's sync gate, keeping its RELEASES_ON killswitch.
-  validate-inputs:
-    runs-on: ubuntu-latest
-    outputs:
-      STABLE_BRANCH: ${{ steps.derive_branch.outputs.STABLE_BRANCH }}
-      CRATES_RELEASE_BRANCH: ${{ steps.derive_branch.outputs.CRATES_RELEASE_BRANCH }}
-    steps:
-      - name: Check the release killswitch
-        env:
-          RELEASES_ON: ${{ vars.RELEASES_ON }}
-        run: |
-          if [[ "$RELEASES_ON" != "true" ]]; then
-            echo -n "::error title=Releases are disabled::"
-            echo "vars.RELEASES_ON is '${RELEASES_ON:-unset}', expected 'true'. Set it to 'true' to allow releases."
-            exit 1
-          fi
+  # Verifies the tag and pins it to a commit. Publishing to crates.io for real also
+  # needs the e2e gate verdict on that commit; staging and dry runs do not.
+  guard:
+    uses: ./.github/workflows/release-guard.yml
+    with:
+      release_tag: ${{ inputs.release_tag }}
+      require_e2e_gate: ${{ inputs.registry == 'crates.io' && !inputs.dry_run }}
+      skip_e2e_gate: ${{ inputs.skip_e2e_gate }}
 
-      # Validated inline: the branch to check out is derived from this input.
-      - name: Derive stable branch from release name
-        id: derive_branch
-        shell: bash
-        env:
-          RELEASE_NAME: ${{ inputs.release_name }}
-        run: |
-          echo "Release name: $RELEASE_NAME"
-
-          if [[ ! "$RELEASE_NAME" =~ ^(un)?stable[0-9]{4}(-[0-9]+)?$ ]]; then
-            echo "::error::release_name '${RELEASE_NAME}' must be in the format (un)stableYYMM or (un)stableYYMM-X"
-            exit 1
-          fi
-
-          # Extract stable branch by removing the last -N suffix
-          # e.g., stable2509-3 -> stable2509
-          if [[ "$RELEASE_NAME" =~ ^(.+)-[0-9]+$ ]]; then
-            STABLE_BRANCH="${BASH_REMATCH[1]}"
-          else
-            # If no suffix, use the release name as-is (first release)
-            STABLE_BRANCH="$RELEASE_NAME"
-          fi
-
-          echo "Stable branch: $STABLE_BRANCH"
-          echo "STABLE_BRANCH=$STABLE_BRANCH" >> $GITHUB_OUTPUT
-
-          echo "CRATES_RELEASE_BRANCH=post-crates-release-$RELEASE_NAME" >> $GITHUB_OUTPUT
-
-  # The build image comes from the stable branch being published; the release
-  # fork read it from master.
+  # The build image comes from the commit being published.
   set-image:
-    needs: [ validate-inputs ]
-    runs-on: parity-large
+    needs: [ guard ]
+    runs-on: ubuntu-latest
     outputs:
       IMAGE: ${{ steps.set_image.outputs.IMAGE }}
     steps:
-      - name: Checkout polkadot-sdk stable branch
+      - name: Assert the guard ran
+        shell: bash
+        env:
+          GUARD_SHA: ${{ needs.guard.outputs.sha }}
+        run: '[[ "$GUARD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No verified SHA from the release guard"; exit 1; }'
+
+      - name: Checkout polkadot-sdk at the verified commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: paritytech/polkadot-sdk
-          ref: ${{ needs.validate-inputs.outputs.STABLE_BRANCH }}
-
-      - id: set_image
-        run: cat .github/env >> $GITHUB_OUTPUT
-
-  publish-crates:
-    needs: [ validate-inputs, set-image ]
-    runs-on: parity-large
-    environment: release
-    env:
-      PGP_KMS_KEY: ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
-      PGP_KMS_HASH: ${{ secrets.PGP_KMS_HASH }}
-      # Spares pgpkms-git the key export from KMS, which fails without GPG_KEY_EXPIRATION
-      GPG_KEY_FINGERPRINT: ${{ vars.GPG_COMMIT_KEY_FINGERPRINT }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
-    container:
-      image: ${{ needs.set-image.outputs.IMAGE }}
-
-    steps:
-      - name: Install pgpkms
-        run: |
-          # Install pgpkms that is used to sign commits
-          # The env var instead of --break-system-packages: the image comes from the release
-          # branch, and older pip (before 23.0.1) rejects the flag but ignores the variable.
-          PIP_BREAK_SYSTEM_PACKAGES=1 pip install git+https://github.com/paritytech/pgpkms.git@dc30e487d47f53d069831a4306377a3ec32638ae
-
-      - name: Checkout polkadot-sdk stable branch
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: paritytech/polkadot-sdk
-          ref: ${{ needs.validate-inputs.outputs.STABLE_BRANCH }}
-          fetch-depth: 0
+          ref: ${{ needs.guard.outputs.sha }}
           persist-credentials: false
 
-      - name: Import GPG keys
-        shell: bash
-        run: |
-          . ./.github/scripts/common/lib.sh
-          import_gpg_keys
+      - id: set_image
+        run: cat .github/env >> "$GITHUB_OUTPUT"
 
-      - name: Configure git
+  # Checks that the commit can be published from, then opens the publish record.
+  # Nothing from the checkout is run here: only git data is read. It waits for
+  # set-image so that the record is opened as late as possible: a run that fails
+  # after this job counts as a publish that did not complete.
+  start-publish:
+    needs: [ guard, set-image ]
+    runs-on: ubuntu-latest
+    # The App key is a secret of this environment.
+    environment: release
+    outputs:
+      context: ${{ steps.context.outputs.context }}
+    defaults:
+      run:
         shell: bash
-        run: |
-          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
-          git config --global commit.gpgsign true
-          PGPKMS_PATH=$(which pgpkms-git)
-          echo "Using pgpkms-git at: $PGPKMS_PATH"
-          git config --global gpg.program "$PGPKMS_PATH"
-          git config --global user.name "ParityReleases"
-          git config --global user.email "release-team@parity.io"
-          [[ "$GPG_KEY_FINGERPRINT" =~ ^[0-9A-F]{40}$ ]] || { echo "::error::vars.GPG_COMMIT_KEY_FINGERPRINT is not set"; exit 1; }
-          git config --global user.signingKey "$GPG_KEY_FINGERPRINT"
-
-      - name: Validate resume preconditions
-        if: inputs.resume_from != 'full'
-        shell: bash
+    steps:
+      - name: Assert the guard ran
         env:
-          CRATES_RELEASE_BRANCH: ${{ needs.validate-inputs.outputs.CRATES_RELEASE_BRANCH }}
-          RESUME_FROM: ${{ inputs.resume_from }}
+          GUARD_SHA: ${{ needs.guard.outputs.sha }}
+        run: '[[ "$GUARD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No verified SHA from the release guard"; exit 1; }'
+
+      # Plan.toml, the history and the tags of the line are all this job reads.
+      - name: Checkout polkadot-sdk at the verified commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: paritytech/polkadot-sdk
+          ref: ${{ needs.guard.outputs.sha }}
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: Plan.toml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      # release-automation at the commit of this run, next to the tree it inspects.
+      - name: Checkout the publish record helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: release-automation
+          sparse-checkout: .github/scripts/crates
+          persist-credentials: false
+
+      # The commit must be one that release-stable-15 prepared, after the last
+      # change that needs a crate release.
+      - name: Check the commit was prepared for a crates release
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          if ! git branch -r --list "origin/$CRATES_RELEASE_BRANCH" | grep -q "$CRATES_RELEASE_BRANCH"; then
-            echo "❌ ::error::Cannot resume from '$RESUME_FROM': branch '$CRATES_RELEASE_BRANCH' does not exist on remote. Use 'full' for a fresh run."
+          set -euo pipefail
+
+          if [[ -z "$(git ls-tree --name-only HEAD -- Plan.toml)" ]]; then
+            echo "::error title=Commit not prepared::${RELEASE_TAG} has no Plan.toml. Run release-stable-15, merge its pull request and tag a new rc."
             exit 1
           fi
-          echo "Release branch '$CRATES_RELEASE_BRANCH' exists on remote. Resuming from '$RESUME_FROM'."
 
-      - name: Create or switch to release branch
-        shell: bash
-        env:
-          CRATES_RELEASE_BRANCH: ${{ needs.validate-inputs.outputs.CRATES_RELEASE_BRANCH }}
-          RESUME_FROM: ${{ inputs.resume_from }}
-        run: |
-          if [ "$RESUME_FROM" != "full" ]; then
-            # Resume: checkout the existing branch pushed during the previous failed run
-            echo "Resuming from '$RESUME_FROM' - checking out existing branch $CRATES_RELEASE_BRANCH"
-            git fetch origin "$CRATES_RELEASE_BRANCH"
-            git checkout "$CRATES_RELEASE_BRANCH"
-          elif git rev-parse --verify -q "origin/$CRATES_RELEASE_BRANCH" &>/dev/null; then
-            echo "Branch $CRATES_RELEASE_BRANCH already exists on remote, switching to it"
-            git checkout "$CRATES_RELEASE_BRANCH"
-          else
-            echo "Creating branch: $CRATES_RELEASE_BRANCH"
-            git checkout -b "$CRATES_RELEASE_BRANCH"
+          # release-stable-15 moves every prdoc into the release folder. One left at
+          # top level was merged after its last run, so the crates it changes are
+          # not in the plan: they would silently stay unpublished while the binaries
+          # of this rc already contain the change.
+          unprepared=$(git ls-tree --name-only HEAD prdoc/ | grep -E '^prdoc/pr_[^/]*\.prdoc$' || true)
+          if [[ -n "$unprepared" ]]; then
+            echo "::error title=Commit not prepared::${RELEASE_TAG} has $(grep -c . <<<"$unprepared") prdoc(s) that were merged after the last run of release-stable-15: $(tr '\n' ' ' <<<"$unprepared"). Run release-stable-15 again, merge its pull request and tag a new rc."
+            exit 1
           fi
-          echo "On branch $CRATES_RELEASE_BRANCH"
+          echo "Plan.toml is present and no prdoc is waiting to be planned"
+
+      # release-stable-15 picked the versions before this rc was built and gated. If
+      # another release line published one of them since, parity-publish would take
+      # it for already published and skip the crate without a word. It decides that
+      # from crates.io, also when uploading to staging, so crates.io is what is read.
+      - name: Check that the planned versions are still free
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Numeric user id of the release App's bot: only its records count.
+          RELEASE_AUTOMATION_APP_BOT_ID: ${{ vars.RELEASE_AUTOMATION_APP_BOT_ID }}
+          GUARD_SHA: ${{ needs.guard.outputs.sha }}
+          STABLE_BRANCH: ${{ needs.guard.outputs.stable_branch }}
+          REGISTRY: ${{ inputs.registry }}
+        run: |
+          set -euo pipefail
+          . release-automation/.github/scripts/crates/publish-record.sh
+
+          check_versions_free "$STABLE_BRANCH" "$GUARD_SHA" "$REGISTRY"
+
+      - name: Name the publish record
+        id: context
+        env:
+          REGISTRY: ${{ inputs.registry }}
+        run: |
+          set -euo pipefail
+          . release-automation/.github/scripts/crates/publish-record.sh
+
+          echo "context=$(publish_context "$REGISTRY")" >> "$GITHUB_OUTPUT"
+
+      - name: Generate a commit status token for polkadot-sdk
+        if: ${{ !inputs.dry_run }}
+        id: status_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_AUTOMATION_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
+          owner: paritytech
+          repositories: polkadot-sdk
+          permission-statuses: write
+
+      # Last step on purpose: from here on release-stable-15 treats this commit as
+      # one whose publish has started.
+      - name: Open the publish record
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ steps.status_token.outputs.token }}
+          GUARD_SHA: ${{ needs.guard.outputs.sha }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          REGISTRY: ${{ inputs.registry }}
+          CONTEXT: ${{ steps.context.outputs.context }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/paritytech/polkadot-sdk/statuses/${GUARD_SHA}" \
+            -f state=pending \
+            -f context="$CONTEXT" \
+            -f description="Publishing the crates of ${RELEASE_TAG} to ${REGISTRY}" \
+            -f target_url="$RUN_URL" \
+            --jq '"status \(.state) posted on \(.url)"'
+
+  publish-crates:
+    needs: [ guard, set-image, start-publish ]
+    runs-on: parity-large
+    environment: release
+    container:
+      image: ${{ needs.set-image.outputs.IMAGE }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Assert the guard ran
+        env:
+          GUARD_SHA: ${{ needs.guard.outputs.sha }}
+        run: '[[ "$GUARD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No verified SHA from the release guard"; exit 1; }'
+
+      - name: Checkout polkadot-sdk at the verified commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: paritytech/polkadot-sdk
+          ref: ${{ needs.guard.outputs.sha }}
+          persist-credentials: false
+
+      # cargo records the commit it packages from; without this it cannot read the
+      # repository inside the container.
+      - name: Configure git
+        run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
 
       - name: Install parity-publish
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends libcurl4-openssl-dev pkg-config
           cargo install parity-publish@0.10.17 --locked -q
 
-      - name: Run parity-publish plan
-        if: inputs.resume_from == 'full'
-        env:
-          PRDOC_PATH: ${{ inputs.prdoc_path }}
-        run: |
-          echo "Running parity-publish plan..."
-          parity-publish plan --prdoc $PRDOC_PATH
-
-      - name: Set umbrella crate version for new stable release
-        if: inputs.resume_from == 'full' && !inputs.is_patch
-        shell: bash
-        env:
-          STABLE_BRANCH: ${{ needs.validate-inputs.outputs.STABLE_BRANCH }}
-        run: |
-          # Extract numeric part from release base branch (e.g., stable2603 -> 2603, unstable2603 -> 2603)
-          case "$STABLE_BRANCH" in
-            stable*)   VERSION_PREFIX="${STABLE_BRANCH#stable}" ;;
-            unstable*) VERSION_PREFIX="${STABLE_BRANCH#unstable}" ;;
-            *)
-              echo "::error::Expected branch to start with 'stable' or 'unstable', got: $STABLE_BRANCH"
-              exit 1
-              ;;
-          esac
-          UMBRELLA_VERSION="${VERSION_PREFIX}.0.0"
-
-          echo "Setting polkadot-sdk umbrella crate version to ${UMBRELLA_VERSION}"
-
-          # Find the line number of the polkadot-sdk name entry
-          LINE=$(grep -n '^name = "polkadot-sdk"$' Plan.toml | cut -d: -f1)
-          if [ -z "$LINE" ]; then
-            echo "::error::polkadot-sdk entry not found in Plan.toml"
-            exit 1
-          fi
-
-          # The 'to' line is 2 lines after 'name' (name, from, to)
-          TO_LINE=$((LINE + 2))
-
-          # Replace the 'to' version
-          sed -i "${TO_LINE}s/^to = \".*\"/to = \"${UMBRELLA_VERSION}\"/" Plan.toml
-
-          # Insert bump and reason after the 'to' line if not already present
-          if ! sed -n "$((TO_LINE + 1))p" Plan.toml | grep -q '^bump'; then
-            sed -i "${TO_LINE}a bump = \"major\"\nreason = \"changed\"" Plan.toml
-          fi
-
-          echo "polkadot-sdk entry in Plan.toml:"
-          grep -B1 -A6 'name = "polkadot-sdk"' Plan.toml
-
-      - name: Save Plan.toml diff
-        if: inputs.resume_from == 'full' && inputs.is_patch
-        env:
-          RELEASE_NAME: ${{ inputs.release_name }}
-        run: |
-          mkdir -p release-artifacts
-
-          echo "Saving Plan.toml diff..."
-          git diff Plan.toml > "release-artifacts/changed_crates_${RELEASE_NAME}.txt"
-
-          echo "Plan.toml changes:"
-          cat "release-artifacts/changed_crates_${RELEASE_NAME}.txt"
-
-      - name: Parse crate names for release notes
-        if: inputs.resume_from == 'full' && inputs.is_patch
-        shell: bash
-        env:
-          RELEASE_NAME: ${{ inputs.release_name }}
-        run: |
-
-          echo "Parsing crate names..."
-          python3 scripts/release/parse-crates-names.py \
-            "release-artifacts/changed_crates_${RELEASE_NAME}.txt" \
-            scripts/release/templates/crates_list.md.tera
-
-          echo "Crates list:"
-          cat scripts/release/templates/crates_list.md.tera
-
-      - name: Commit Plan.toml and crates list
-        if: inputs.resume_from == 'full'
-        shell: bash
-        env:
-          IS_PATCH: ${{ inputs.is_patch }}
-          RELEASE_NAME: ${{ inputs.release_name }}
-        run: |
-          . ./.github/scripts/release/release_lib.sh
-
-          git add Plan.toml
-          if [ "$IS_PATCH" = true ]; then
-            git add scripts/release/templates/crates_list.md.tera
-          fi
-
-          if [[ -n $(git status --porcelain) ]]; then
-            commit_with_message "chore: update Plan.toml and crates list for $RELEASE_NAME"
-            echo "Committed Plan.toml and crates list"
-          else
-            echo "No changes to commit"
-          fi
-
-      - name: Run parity-publish apply
-        if: inputs.resume_from == 'full' || inputs.resume_from == 'apply'
+      # From here on the checkout is modified and never committed: the manifests get
+      # the planned versions and registry dependencies, exactly as release-stable-15
+      # validated them.
+      - name: Rewrite the manifests for the registry
         run: |
           echo "Running parity-publish apply..."
           parity-publish apply
-
-      - name: Update Cargo.lock
-        if: inputs.resume_from == 'full' || inputs.resume_from == 'apply'
-        run: |
           echo "Updating Cargo.lock..."
           cargo update --workspace --offline || cargo update --workspace
-          echo "Cargo.lock updated"
 
+      # Parallel publishing does not verify each crate, so check the workspace once.
       - name: Verify workspace compiles
-        if: (inputs.resume_from == 'full' || inputs.resume_from == 'apply') && inputs.publish_jobs > 0
+        if: inputs.publish_jobs > 0
         env:
           SKIP_WASM_BUILD: 1
         run: |
@@ -336,26 +278,7 @@ jobs:
           cargo check --workspace --all-targets 2>&1
           echo "Workspace compiles successfully"
 
-      - name: Commit version bumps
-        if: inputs.resume_from == 'full' || inputs.resume_from == 'apply'
-        shell: bash
-        env:
-          RELEASE_NAME: ${{ inputs.release_name }}
-        run: |
-          . ./.github/scripts/release/release_lib.sh
-
-          git add -A
-
-          if [[ -n $(git status --porcelain) ]]; then
-            commit_with_message "chore: apply version bumps for $RELEASE_NAME"
-            echo "Committed version bumps"
-          else
-            echo "No changes to commit"
-          fi
-
       - name: Configure cargo registry
-        if: inputs.resume_from != 'push'
-        shell: bash
         env:
           REGISTRY: ${{ inputs.registry }}
         run: |
@@ -374,9 +297,9 @@ jobs:
           echo "Cargo config:"
           cat ~/.cargo/config.toml || echo "(using defaults)"
 
+      # --allow-dirty: the manifests were rewritten above and are not committed.
+      # cargo still records the rc commit in each crate's .cargo_vcs_info.json.
       - name: Publish crates
-        if: inputs.resume_from != 'push'
-        shell: bash
         env:
           PARITY_PUBLISH_CRATESIO_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
           PARITY_PUBLISH_STAGING_CRATESIO_TOKEN: ${{ secrets.STAGING_CRATES_IO_API_TOKEN }}
@@ -409,85 +332,40 @@ jobs:
             STAGING_ARG="--staging"
           fi
 
+          DRY_RUN_ARG=""
           if [ "$DRY_RUN" = true ]; then
             echo "DRY RUN - Not actually publishing crates"
-            echo "Target registry: $REGISTRY"
-            parity-publish apply -p -d $STAGING_ARG $PARALLEL_ARGS $CLEAN_ARGS $DELAY_ARGS
-          else
-            echo "Publishing crates to $REGISTRY..."
-            parity-publish apply -p $STAGING_ARG $PARALLEL_ARGS $CLEAN_ARGS $DELAY_ARGS
+            DRY_RUN_ARG="-d"
+          fi
+
+          echo "Target registry: $REGISTRY"
+          parity-publish apply -p --allow-dirty $DRY_RUN_ARG $STAGING_ARG $PARALLEL_ARGS $CLEAN_ARGS $DELAY_ARGS 2>&1 | tee /tmp/publish.log
+
+          if [ "$DRY_RUN" != true ]; then
             echo "Crates published successfully to $REGISTRY!"
           fi
 
-      - name: Restore clean manifests after publish
-        if: inputs.resume_from != 'push'
-        shell: bash
+      - name: Summarize
+        if: always()
         env:
-          RELEASE_NAME: ${{ inputs.release_name }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          GUARD_SHA: ${{ needs.guard.outputs.sha }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          REGISTRY: ${{ inputs.registry }}
         run: |
-          . ./.github/scripts/release/release_lib.sh
-
-          echo "Restoring clean manifests with version bumps only..."
-          parity-publish restore
-
-          git add -A
-          if [[ -n $(git status --porcelain) ]]; then
-            commit_with_message "Restore clean manifests after crates publish for $RELEASE_NAME"
-            echo "Clean manifests committed"
-          else
-            echo "No changes to restore"
-          fi
-
-
-      - name: Generate token for paritytech/polkadot-sdk
-        id: generate_write_token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-            client-id: ${{ vars.RELEASE_AUTOMATION_CLIENT_ID }}
-            private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
-            owner: paritytech
-            repositories: polkadot-sdk
-
-      - name: Push release branch to paritytech
-        env:
-          CRATES_RELEASE_BRANCH: ${{ needs.validate-inputs.outputs.CRATES_RELEASE_BRANCH }}
-          TOKEN: ${{ steps.generate_write_token.outputs.token }}
-        run: |
-          echo "Pushing branch $CRATES_RELEASE_BRANCH to paritytech/polkadot-sdk..."
-          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/paritytech/polkadot-sdk.git"
-          git push origin "$CRATES_RELEASE_BRANCH"
-          echo "Successfully pushed $CRATES_RELEASE_BRANCH to paritytech/polkadot-sdk"
-
-      # The release fork kept this branch in the fork; there is no fork now, so it
-      # goes to polkadot-sdk, which is also where the resume path above looks for
-      # it. The token is generated here rather than reused: app tokens expire after
-      # an hour, and this step can run several hours into the job.
-      - name: Generate token for paritytech/polkadot-sdk on failure or cancellation
-        id: generate_failure_token
-        if: failure() || cancelled()
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-            client-id: ${{ vars.RELEASE_AUTOMATION_CLIENT_ID }}
-            private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
-            owner: paritytech
-            repositories: polkadot-sdk
-
-      - name: Push release branch to paritytech on failure or cancellation
-        if: (failure() || cancelled()) && steps.generate_failure_token.outputs.token != ''
-        env:
-          CRATES_RELEASE_BRANCH: ${{ needs.validate-inputs.outputs.CRATES_RELEASE_BRANCH }}
-          TOKEN: ${{ steps.generate_failure_token.outputs.token }}
-        run: |
-          # Nothing to preserve when the job failed before the release branch was created
-          if ! git rev-parse --verify -q "refs/heads/$CRATES_RELEASE_BRANCH" >/dev/null 2>&1; then
-            echo "Release branch '$CRATES_RELEASE_BRANCH' was not created, nothing to push"
-            exit 0
-          fi
-
-          echo "Job did not complete successfully. Pushing branch '$CRATES_RELEASE_BRANCH' to paritytech/polkadot-sdk to preserve state for resume..."
-          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/paritytech/polkadot-sdk.git"
-          git push origin "$CRATES_RELEASE_BRANCH" --force-with-lease
-          echo "Branch pushed. To resume, re-run this workflow with resume_from set to the appropriate phase."
+          {
+            echo "### Crates publish for \`${RELEASE_TAG}\`"
+            echo
+            echo "- Commit: \`${GUARD_SHA}\`"
+            echo "- Registry: ${REGISTRY}, dry run: ${DRY_RUN}"
+            # parity-publish prints how many crates it publishes and how many it
+            # skips because their version is already on the registry.
+            if summary=$(grep -m1 -E '^Publishing [0-9]+ (packages|crates)' /tmp/publish.log 2>/dev/null); then
+              echo "- ${summary}"
+            else
+              echo "- Publishing did not start"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Notify RelEng on failure or cancellation
         if: failure() || cancelled()
@@ -497,8 +375,65 @@ jobs:
           access_token: ${{ secrets.RELEASENOTES_MATRIX_V2_ACCESS_TOKEN }}
           server: m.parity.io
           message: |
-            **Publish Crates workflow did not complete** for `${{ inputs.release_name }}` (registry: `${{ inputs.registry }}`, dry_run: `${{ inputs.dry_run }}`).<br/>
+            **Publish Crates workflow did not complete** for `${{ inputs.release_tag }}` (registry: `${{ inputs.registry }}`, dry_run: `${{ inputs.dry_run }}`).<br/>
             Likely causes: the 6h GitHub job timeout, or an error during publishing.<br/>
-            Branch `${{ needs.validate-inputs.outputs.CRATES_RELEASE_BRANCH }}` has been pushed to preserve state.<br/>
-            Re-run the workflow with `resume_from` set to the appropriate phase (typically `publish`).<br/>
+            Run the workflow again with the same tag: crates that are already on crates.io are skipped. On staging.crates.io set `publish_jobs` for the second run.<br/>
             Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  # Closes the publish record. Runs whenever it was opened, so a cancelled run or
+  # a failed job does not leave the commit pending: anything but a completed
+  # publish is recorded as a failure, which release-stable-15 reads as "finish
+  # this publish first".
+  record-publish:
+    needs: [ guard, start-publish, publish-crates ]
+    if: ${{ always() && !inputs.dry_run && needs.start-publish.result == 'success' }}
+    runs-on: ubuntu-latest
+    # The App key is a secret of this environment.
+    environment: release
+    permissions: {}
+    steps:
+      - name: Assert the guard ran
+        env:
+          GUARD_SHA: ${{ needs.guard.outputs.sha }}
+        run: '[[ "$GUARD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No verified SHA from the release guard"; exit 1; }'
+
+      - name: Generate a commit status token for polkadot-sdk
+        id: status_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_AUTOMATION_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_AUTOMATION_APP_PRIVATE_KEY }}
+          owner: paritytech
+          repositories: polkadot-sdk
+          permission-statuses: write
+
+      - name: Record how the publish ended
+        env:
+          GH_TOKEN: ${{ steps.status_token.outputs.token }}
+          GUARD_SHA: ${{ needs.guard.outputs.sha }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          REGISTRY: ${{ inputs.registry }}
+          CONTEXT: ${{ needs.start-publish.outputs.context }}
+          PUBLISH_RESULT: ${{ needs.publish-crates.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [[ "$PUBLISH_RESULT" == "success" ]]; then
+            state=success
+            description="Crates of ${RELEASE_TAG} are published to ${REGISTRY}"
+          else
+            state=failure
+            description="Crates publish of ${RELEASE_TAG} to ${REGISTRY} did not complete (${PUBLISH_RESULT})"
+          fi
+
+          gh api --method POST "repos/paritytech/polkadot-sdk/statuses/${GUARD_SHA}" \
+            -f state="$state" \
+            -f context="$CONTEXT" \
+            -f description="$description" \
+            -f target_url="$RUN_URL" \
+            --jq '"status \(.state) posted on \(.url)"'
+
+          {
+            echo "### Publish record: ${state}"
+            echo
+            echo "${description}. Recorded as \`${CONTEXT}\` on \`${GUARD_SHA}\` in paritytech/polkadot-sdk."
+          } >> "$GITHUB_STEP_SUMMARY"

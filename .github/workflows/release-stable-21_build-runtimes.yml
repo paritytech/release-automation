@@ -60,6 +60,8 @@ jobs:
     uses: ./.github/workflows/release-guard.yml
     with:
       release_tag: ${{ inputs.release_tag }}
+      # Builds the runtimes that the e2e gate tests, so no verdict exists yet.
+      require_e2e_gate: false
 
   build-runtimes:
     needs: [guard]

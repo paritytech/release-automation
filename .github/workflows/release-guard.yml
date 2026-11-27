@@ -14,6 +14,7 @@
 #       uses: ./.github/workflows/release-guard.yml
 #       with:
 #         release_tag: ${{ inputs.release_tag }}
+#         require_e2e_gate: false
 #
 #     build:
 #       needs: [guard]
@@ -28,6 +29,12 @@
 #             repository: paritytech/polkadot-sdk
 #             ref: ${{ needs.guard.outputs.sha }}   # never inputs.release_tag
 #
+# A workflow that publishes (crates, final S3 path, deb/rpm, Docker, the final tag
+# and GitHub release) passes `require_e2e_gate: true`. The guard then also requires
+# the commit to carry a passing e2e gate verdict, recorded by release-stable-22 as
+# the commit status `release/e2e-gate`. Such a workflow exposes `skip_e2e_gate` to
+# its operator and passes it on. `require_e2e_gate` has no default on purpose: every
+# caller states it, and check-guard-wiring.py checks what each one passes.
 
 name: Stable Release - Guard
 
@@ -38,6 +45,15 @@ on:
         description: Release tag to verify, e.g. polkadot-stable2609-rc2
         required: true
         type: string
+      require_e2e_gate:
+        description: Also require a passing e2e gate verdict on the tagged commit. True for everything that publishes.
+        required: true
+        type: boolean
+      skip_e2e_gate:
+        description: Operator override for require_e2e_gate, for releases the gate cannot test.
+        required: false
+        default: false
+        type: boolean
     outputs:
       sha:
         description: Verified commit SHA. Use this for every downstream checkout.
@@ -53,6 +69,16 @@ on:
         description: Release tag to verify, e.g. polkadot-stable2609-rc2
         required: true
         type: string
+      require_e2e_gate:
+        description: Also require a passing e2e gate verdict on the tagged commit
+        required: false
+        default: false
+        type: boolean
+      skip_e2e_gate:
+        description: Operator override for require_e2e_gate
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -92,4 +118,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           RELEASES_ON: ${{ vars.RELEASES_ON }}
+          REQUIRE_E2E_GATE: ${{ inputs.require_e2e_gate }}
+          SKIP_E2E_GATE: ${{ inputs.skip_e2e_gate }}
+          # Numeric user id of the release App's bot: only its verdicts count.
+          RELEASE_AUTOMATION_APP_BOT_ID: ${{ vars.RELEASE_AUTOMATION_APP_BOT_ID }}
         run: ./.github/scripts/guard/verify-release-ref.sh

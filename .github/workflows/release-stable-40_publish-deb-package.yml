@@ -18,6 +18,11 @@ on:
         description: Tag to verify and check out, if not `tag` itself (e.g. the rc tag, before the final tag exists)
         required: false
         type: string
+      skip_e2e_gate:
+        description: Proceed without a passing e2e gate verdict on this rc. Only for releases the gate cannot test (older stable lines, crates-only releases)
+        required: false
+        default: false
+        type: boolean
 
   workflow_call:
     inputs:
@@ -35,6 +40,11 @@ on:
         description: Tag to verify and check out, if not `tag` itself (e.g. the rc tag, before the final tag exists)
         required: false
         type: string
+      skip_e2e_gate:
+        description: Proceed without a passing e2e gate verdict on this rc. Only for releases the gate cannot test (older stable lines, crates-only releases)
+        required: false
+        default: false
+        type: boolean
 
 
 jobs:
@@ -45,6 +55,11 @@ jobs:
     uses: ./.github/workflows/release-guard.yml
     with:
       release_tag: ${{ inputs.source_tag || inputs.tag }}
+      # A package in the production repo is a publication, so the commit must have
+      # passed the e2e gate. Staging has its own repo for test packages (see
+      # aws_repo_base_path below), like the rc binaries on S3.
+      require_e2e_gate: ${{ inputs.distribution != 'staging' }}
+      skip_e2e_gate: ${{ inputs.skip_e2e_gate }}
 
   call-publish-workflow:
     needs: [guard]

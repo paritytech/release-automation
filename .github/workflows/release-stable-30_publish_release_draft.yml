@@ -61,6 +61,8 @@ jobs:
     uses: ./.github/workflows/release-guard.yml
     with:
       release_tag: ${{ inputs.release_tag }}
+      # A draft is not a publication; release-stable-22 makes it wait for the gate.
+      require_e2e_gate: false
 
   publish-release-draft:
     runs-on: ubuntu-latest

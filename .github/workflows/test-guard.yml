@@ -21,6 +21,11 @@ jobs:
       - name: Guard halts and passes on the right cases (stubbed GitHub API)
         run: ./.github/scripts/guard/tests/test-verify-release-ref.sh
 
+      # What release-stable-15 and release-stable-80 read from the crates publish
+      # record, against throwaway repositories and a stubbed API and registry.
+      - name: Crates publish record is read correctly
+        run: ./.github/scripts/crates/tests/test-publish-record.sh
+
   wiring:
     runs-on: ubuntu-latest
     steps:

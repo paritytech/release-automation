@@ -16,6 +16,12 @@ repo="repos/paritytech/polkadot-sdk"
 readonly COMMIT_SHA="1111111111111111111111111111111111111111"
 readonly TAG_OBJECT_SHA="2222222222222222222222222222222222222222"
 
+# The e2e gate verdict (step 6 of the guard): the release App's bot, and
+# somebody else who can also post commit statuses on polkadot-sdk.
+readonly APP_BOT_ID=187407115
+readonly OTHER_ID=4242
+readonly GATE_STATUSES="repos/paritytech/polkadot-sdk/commits/${COMMIT_SHA}/statuses?per_page=100"
+
 failures=0
 passes=0
 
@@ -26,11 +32,12 @@ new_case() {
 	mkdir -p "${case_dir}/fixtures" "${case_dir}/bin"
 	ln -s "${here}/fake-gh" "${case_dir}/bin/gh"
 	: >"${case_dir}/fixtures/calls"
+	gate_env=()
 }
 
 fixture() { # fixture <api path> <json body>
 	mkdir -p "$(dirname "${case_dir}/fixtures/$1")"
-	printf '%s\n' "$2" >"${case_dir}/fixtures/$1"
+	printf '%s\n' "$2" >"${case_dir}/fixtures/$1.json"
 }
 
 fixture_error() { # fixture_error <api path> <stderr text>
@@ -71,6 +78,27 @@ valid_release() { # valid_release <tag> <branch>
 	compare "$2" behind
 }
 
+# The caller publishes, so the guard must find a passing e2e gate verdict.
+require_gate() { # require_gate [bot id, "unset" to leave the variable out]
+	gate_env=("REQUIRE_E2E_GATE=true")
+	[[ "${1-}" == "unset" ]] || gate_env+=("RELEASE_AUTOMATION_APP_BOT_ID=${1-$APP_BOT_ID}")
+}
+
+skip_gate() { gate_env+=("SKIP_E2E_GATE=true"); }
+
+# gate_statuses "<status id> <creator id> <state> [context]"...
+# The commit's statuses, newest first as the API lists them.
+gate_statuses() {
+	local json="[]" entry id creator state context
+	for entry in "$@"; do
+		read -r id creator state context <<<"$entry"
+		json=$(jq -c --argjson id "$id" --argjson creator "$creator" --arg state "$state" \
+			--arg context "${context:-release/e2e-gate}" \
+			'. + [{id: $id, state: $state, context: $context, target_url: "https://example.test/run", creator: {id: $creator}}]' <<<"$json")
+	done
+	fixture "$GATE_STATUSES" "$json"
+}
+
 # --- runner ------------------------------------------------------------------
 
 # run_guard <tag> [RELEASES_ON value, "unset" to leave it out]
@@ -85,6 +113,8 @@ run_guard() {
 		"RELEASE_TAG=$1"
 	)
 	[[ "$releases_on" != "unset" ]] && env+=("RELEASES_ON=${releases_on}")
+	# Expanded this way so an empty array is not an unbound variable on bash < 4.4.
+	env+=(${gate_env[@]+"${gate_env[@]}"})
 	env -i HOME="$HOME" "${env[@]}" bash "$guard" >"${case_dir}/stdout" 2>"${case_dir}/stderr"
 }
 
@@ -210,6 +240,138 @@ new_case
 valid_release polkadot-stable2609-rc2 stable2609
 fixture_error "${repo}/branches/stable2609" "API rate limit exceeded (HTTP 403)"
 expect_halt "rate limit is reported as an API error, not a missing branch" polkadot-stable2609-rc2 "GitHub API error"
+
+# --- e2e gate verdict --------------------------------------------------------
+
+new_case
+valid_release polkadot-stable2609-rc2 stable2609
+if ! run_guard polkadot-stable2609-rc2; then
+	not_ok "a caller that does not require the gate passes without a verdict" "expected the guard to pass, it halted"
+elif grep -q "statuses" "${case_dir}/fixtures/calls"; then
+	not_ok "a caller that does not require the gate passes without a verdict" "the commit statuses were read although the gate is not required"
+else
+	ok "a caller that does not require the gate passes without a verdict"
+fi
+rm -rf "$case_dir"
+
+new_case
+valid_release polkadot-stable2609-rc2 stable2609
+require_gate
+gate_statuses "20 ${APP_BOT_ID} success" "10 ${APP_BOT_ID} pending"
+expect_pass "passing verdict from the release App passes" polkadot-stable2609-rc2 stable2609
+
+new_case
+valid_release polkadot-stable2609-rc2 stable2609
+require_gate
+gate_statuses
+expect_halt "commit without any status halts" polkadot-stable2609-rc2 "E2E gate has not run"
+
+new_case
+valid_release polkadot-stable2609-rc2 stable2609
+require_gate
+gate_statuses "10 ${APP_BOT_ID} pending"
+expect_halt "pending verdict halts" polkadot-stable2609-rc2 "E2E gate still running"
+
+new_case
+valid_release polkadot-stable2609-rc2 stable2609
+require_gate
+gate_statuses "20 ${APP_BOT_ID} failure" "10 ${APP_BOT_ID} pending"
+expect_halt "failed verdict halts" polkadot-stable2609-rc2 "E2E gate did not pass"
+
+new_case
+valid_release polkadot-stable2609-rc2 stable2609
+require_gate
+gate_statuses "20 ${APP_BOT_ID} error" "10 ${APP_BOT_ID} pending"
+expect_halt "error verdict (cancelled or timed out gate) halts" polkadot-stable2609-rc2 "E2E gate did not pass"
+
+new_case
+valid_release polkadot-stable2609-rc2 stable2609
+require_gate
+gate_statuses "10 ${OTHER_ID} success"
+expect_halt "passing verdict from another identity does not count" polkadot-stable2609-rc2 "E2E gate has not run"
+
+new_case
+valid_release polkadot-stable2609-rc2 stable2609
+require_gate
+gate_statuses "10 ${APP_BOT_ID} success some/other-check"
+expect_halt "the App's status under another context does not count" polkadot-stable2609-rc2 "E2E gate has not run"
+
+new_case
+valid_release polkadot-stable2609-rc2 stable2609
+require_gate
+gate_statuses "40 ${APP_BOT_ID} failure" "30 ${APP_BOT_ID} pending" "20 ${APP_BOT_ID} success" "10 ${APP_BOT_ID} pending"
+expect_halt "a failed re-run overrides an earlier pass" polkadot-stable2609-rc2 "E2E gate did not pass"
+
+new_case
+valid_release polkadot-stable2609-rc2 stable2609
+require_gate
+gate_statuses "30 ${APP_BOT_ID} pending" "20 ${APP_BOT_ID} success" "10 ${APP_BOT_ID} pending"
+expect_halt "a running re-run overrides an earlier pass" polkadot-stable2609-rc2 "E2E gate still running"
+
+new_case
+valid_release polkadot-stable2609-rc2 stable2609
+require_gate
+gate_statuses "30 ${OTHER_ID} failure" "20 ${APP_BOT_ID} success" "10 ${APP_BOT_ID} pending"
+expect_pass "another identity's failure above the App's pass is ignored" polkadot-stable2609-rc2 stable2609
+
+new_case
+valid_release polkadot-stable2609-rc2 stable2609
+require_gate
+gate_statuses "30 ${OTHER_ID} success" "20 ${APP_BOT_ID} failure"
+expect_halt "another identity's pass above the App's failure is ignored" polkadot-stable2609-rc2 "E2E gate did not pass"
+
+new_case
+valid_release polkadot-stable2609-rc2 stable2609
+require_gate unset
+gate_statuses "20 ${APP_BOT_ID} success"
+expect_halt "required gate without the bot id variable halts" polkadot-stable2609-rc2 "E2E gate check not configured"
+
+new_case
+valid_release polkadot-stable2609-rc2 stable2609
+require_gate "ptech-polkadotsdk-release-writer[bot]"
+gate_statuses "20 ${APP_BOT_ID} success"
+expect_halt "bot id variable holding a login instead of an id halts" polkadot-stable2609-rc2 "E2E gate check not configured"
+
+new_case
+valid_release polkadot-stable2609-rc2 stable2609
+require_gate
+fixture_error "$GATE_STATUSES" "Server Error (HTTP 500)"
+expect_halt "5xx while reading the verdict is an API error, not a pass" polkadot-stable2609-rc2 "GitHub API error"
+
+new_case
+valid_release polkadot-stable2609-rc2 stable2609
+require_gate
+skip_gate
+gate_statuses "20 ${APP_BOT_ID} failure"
+if ! run_guard polkadot-stable2609-rc2; then
+	not_ok "skip_e2e_gate passes without reading the verdict" "expected the guard to pass, it halted"
+elif grep -q "statuses" "${case_dir}/fixtures/calls"; then
+	not_ok "skip_e2e_gate passes without reading the verdict" "the commit statuses were read although the check is skipped"
+elif ! grep -qF "::warning title=E2E gate check skipped::" "${case_dir}/stdout"; then
+	not_ok "skip_e2e_gate passes without reading the verdict" "expected a warning annotation about the skipped check"
+elif ! grep -qF "skipped by the operator" "${case_dir}/summary"; then
+	not_ok "skip_e2e_gate passes without reading the verdict" "expected the skip in the step summary"
+else
+	ok "skip_e2e_gate passes without reading the verdict"
+fi
+rm -rf "$case_dir"
+
+new_case
+valid_release polkadot-stable2609-rc2 stable2609
+gate_env=("SKIP_E2E_GATE=true")
+if run_guard polkadot-stable2609-rc2 && ! grep -qF "::warning" "${case_dir}/stdout"; then
+	ok "skip_e2e_gate without a required gate changes nothing"
+else
+	not_ok "skip_e2e_gate without a required gate changes nothing" "expected a plain pass with no warning"
+fi
+rm -rf "$case_dir"
+
+new_case
+valid_release polkadot-stable2609-rc2 stable2609
+require_gate
+gate_statuses "20 ${APP_BOT_ID} success"
+compare stable2609 diverged
+expect_halt "a passing verdict does not excuse a tag off its branch" polkadot-stable2609-rc2 "Ref not on the release branch"
 
 echo
 echo "${passes} passed, ${failures} failed"

@@ -14,11 +14,15 @@
 #
 # Requires: gh (authenticated via GH_TOKEN), jq.
 # Reads:    RELEASES_ON, RELEASE_TAG
+#           REQUIRE_E2E_GATE, SKIP_E2E_GATE, RELEASE_AUTOMATION_APP_BOT_ID (e2e gate verdict, step 6)
 # Writes:   sha, stable_branch  -> $GITHUB_OUTPUT
 
 set -euo pipefail
 
 readonly UPSTREAM_REPO="paritytech/polkadot-sdk"
+
+# Commit status under which release-stable-22 records the e2e gate's verdict.
+readonly E2E_GATE_CONTEXT="release/e2e-gate"
 
 # Release tags are always polkadot-stableYYMM or polkadot-unstableYYMM, with an
 # optional patch and rc suffix: polkadot-stable2609, polkadot-stable2509-3,
@@ -123,7 +127,58 @@ identical | behind) ;;
 	;;
 esac
 
-# 6. Publish the pinned SHA. Downstream jobs check this out instead of the tag
+# 6. Where the caller publishes something (REQUIRE_E2E_GATE), the commit must
+#    carry a passing e2e gate verdict.
+#
+#    release-stable-22 records the gate's result as a commit status on the
+#    commit it built. Only a status posted by the release App counts: anyone
+#    with status write on polkadot-sdk can post under this context, so statuses
+#    from other identities are ignored, neither trusted nor allowed to block.
+#    The newest one decides, so a gate re-run that is pending or failed
+#    overrides an earlier pass.
+#
+#    SKIP_E2E_GATE is the operator's explicit override, for releases the gate
+#    cannot test (see the scope of the gate in CLAUDE.md).
+e2e_gate="not required by this workflow"
+if [[ "${REQUIRE_E2E_GATE:-false}" == "true" ]]; then
+	if [[ "${SKIP_E2E_GATE:-false}" == "true" ]]; then
+		e2e_gate="NOT CHECKED: skipped by the operator (skip_e2e_gate)"
+		echo "::warning title=E2E gate check skipped::${RELEASE_TAG} (${sha}) proceeds without a passing e2e gate verdict because skip_e2e_gate is set."
+	else
+		[[ "${RELEASE_AUTOMATION_APP_BOT_ID:-}" =~ ^[0-9]+$ ]] ||
+			fail "E2E gate check not configured" \
+				"vars.RELEASE_AUTOMATION_APP_BOT_ID must hold the numeric user id of the release App's bot, got '${RELEASE_AUTOMATION_APP_BOT_ID:-unset}'."
+
+		# Newest first; the gate's statuses are among the last ones posted on a
+		# release candidate, so the first page is enough.
+		statuses=$(api "Commit statuses not found" "Could not list the commit statuses of ${sha} in ${UPSTREAM_REPO}" \
+			"repos/${UPSTREAM_REPO}/commits/${sha}/statuses?per_page=100")
+		verdict=$(jq -c --arg context "$E2E_GATE_CONTEXT" --argjson bot "$RELEASE_AUTOMATION_APP_BOT_ID" \
+			'[.[] | select(.context == $context and .creator.id == $bot)] | max_by(.id)' <<<"$statuses")
+		state=$(jq -r '.state // "missing"' <<<"$verdict")
+		run_url=$(jq -r '.target_url // "no run recorded"' <<<"$verdict")
+		how="Run release-stable-22 for this rc and wait for the gate, or set skip_e2e_gate if this release cannot be gated."
+
+		case "$state" in
+		success) ;;
+		missing)
+			fail "E2E gate has not run" \
+				"Commit ${sha} has no '${E2E_GATE_CONTEXT}' verdict from the release App. ${how}"
+			;;
+		pending)
+			fail "E2E gate still running" \
+				"The e2e gate for ${sha} has not finished (${run_url}). ${how}"
+			;;
+		*)
+			fail "E2E gate did not pass" \
+				"The newest e2e gate verdict for ${sha} is '${state}' (${run_url}). ${how}"
+			;;
+		esac
+		e2e_gate="passed (${run_url})"
+	fi
+fi
+
+# 7. Publish the pinned SHA. Downstream jobs check this out instead of the tag
 #    name, so the ref cannot change under the pipeline mid-run.
 echo "sha=${sha}" >>"$GITHUB_OUTPUT"
 echo "stable_branch=${stable_branch}" >>"$GITHUB_OUTPUT"
@@ -137,6 +192,7 @@ cat >>"$GITHUB_STEP_SUMMARY" <<EOF
 | Resolved commit | \`${sha}\` |
 | Commit signature | verified by GitHub (${reason}) — not a provenance check |
 | Reachable from | protected \`${stable_branch}\` |
+| E2E gate | ${e2e_gate} |
 
 Downstream jobs must check out \`${sha}\`, not \`${RELEASE_TAG}\`.
 EOF

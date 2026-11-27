@@ -11,6 +11,7 @@ Release automation for the Polkadot SDK weekly and stable release pipelines. Thi
 - `.github/workflows/` — GitHub Actions workflow files (numbered by stage); `release-*` weekly, `release-stable-*` stable
 - `.github/scripts/pipeline-lib.sh` — the helpers specific to this repo (weekly version and tag handling)
 - `.github/scripts/guard/` — tag verification for `release-guard.yml`, plus its tests
+- `.github/scripts/crates/` — the crates publish record that `release-stable-15` and `release-stable-80` read, plus its tests
 
 Everything else — `lib.sh`, `release_lib.sh` and the build scripts — comes from the polkadot-sdk checkout, which
 is the source of truth. A CI check fails the build if copies reappear here.
@@ -48,6 +49,59 @@ The stable pipeline mirrors this as `release-stable-*`, with `release-stable-22`
 and publish the draft. The stable flows also release `unstableYYMM` branches; `release-guard.yml` accepts both
 `polkadot-stable*` and `polkadot-unstable*` tags. Both pipelines start with `release-guard.yml`.
 
+## Stable Release Order and the E2E Gate
+
+Every step is a manual dispatch. Nothing is published before the e2e gate has passed on the rc:
+
+```
+release-stable-10  branch off (new stable line only)
+release-stable-15  prepare crates: plan + version bumps + NODE_VERSION/spec_version + prdocs -> PR -> merge
+release-stable-11  tag the rc on the stable branch tip = commit C
+release-stable-22  build binaries and runtimes at C -> e2e gate -> verdict on C -> release draft
+release-stable-80  publish crates from C (no commits, no push) and record that on C
+release-stable-70  promote to final on S3, deb/rpm, Docker
+release-stable-32  final tag on C, publish the GitHub release
+```
+
+The final tag, the tested binaries and the published crate sources are all commit C, so the commit hash that
+`polkadot --version` prints is the final tag's. A crates-only release runs 15, 11, `release-stable-30` with
+`crates_only`, 80 and 32: 80 publishes from a tag, so it needs an rc too.
+
+- **Verdict.** `release-stable-22` records the gate's result as the commit status `release/e2e-gate` on C in
+  polkadot-sdk (`pending` when a gated run starts, then `success`, `failure` or `error`). `release-guard.yml`
+  requires a `success` posted by the release App (matched by `vars.RELEASE_AUTOMATION_APP_BOT_ID`) in every
+  workflow that publishes: 80 (crates.io, not a dry run), 70, 31, 40 and 41 (production package repo), 50
+  (release images) and 32. `check-guard-wiring.py` fails the build if a guard call does not state
+  `require_e2e_gate`. The verdict belongs to the commit: a rebuild of the same commit that is not gated
+  (partial, or with `skip_e2e_gate`) leaves it as it is. Do not start a gated run of 22 for an rc while 70
+  runs for it: every stage of 70 reads the verdict again, and a new `pending` stops it halfway.
+- **Scope.** Gated: runs of 22 with `binary: all` and either `chain: all` or `no_runtimes`. With runtimes the
+  gate only passes while they are ahead of live Westend (it fails on an equal or lower `spec_version`), which in
+  practice means the newest stable line after its `spec_version` bump. With `no_runtimes` the new binaries run
+  the fork on Westend's current runtimes.
+- **Override.** `skip_e2e_gate`, on 22 and on every publishing workflow, for releases the gate cannot test:
+  older stable lines built with runtimes, crates-only releases, partial rebuilds. 22 reports to the release
+  Matrix room every gated run that ends without a passing verdict (failed, cancelled, not started, verdict not
+  recorded) and every run with `skip_e2e_gate`. When the gate fails only because the release cannot be gated,
+  nothing is built again: `release-stable-30` with that run's `build_run_id` creates the draft.
+- **One gated run at a time.** The gate's concurrency group is the calling workflow and ref, so two gated runs
+  of 22 cancel each other's gate, also across release lines.
+- **Publish record.** 80 records on C that its crates were published: commit status `release/crates-published`
+  (`release/crates-published-staging` for staging.crates.io), `pending` when the publish starts, then `success`
+  or `failure`. Like the verdict it only counts when posted by the release App. Dry runs record nothing. The
+  logic that reads it is in `.github/scripts/crates/publish-record.sh`.
+- **Re-running 15.** After a fix is backported, 15 runs again before the next rc. It plans from the newest
+  published `Plan.toml`, so plans that were merged but never published are redone instead of bumped on top. What
+  is published comes from the publish record: the newest rc commit of the line recorded as `success`, otherwise
+  the last final tag. It stops when a newer rc has a publish that started and did not complete (finish 80 for
+  it first), and `baseline_ref` overrides the lookup. A crate that was never on the registry is the exception:
+  it is bumped once more per re-run, because its starting version comes from its manifest.
+- **What 80 checks first.** It refuses a commit that still has prdocs at top level, i.e. one that 15 has not
+  prepared since the last backport. It also refuses when a version the plan introduces is already on
+  crates.io although this line has not published it: another release line took it between 15 and 80, and
+  `parity-publish` would skip that crate silently (it reads crates.io for that, also when it uploads to
+  staging). Then 15 has to run again (it plans the next free version), followed by a new rc and 22.
+
 Deb and RPM packages for the `release` distribution go to `s3://releases-package-repos` (public, served at
 `releases.parity.io/{deb,rpm}`). Staging goes to `s3://staging-package-repos`, so test packages never land in the
 production repo.
@@ -64,7 +118,7 @@ production repo.
 ## Key Patterns
 
 - All commits and tags are GPG-signed using `pgpkms` (KMS-backed signing)
-- GitHub App tokens are used for fine-grained permissions (via `vars.RELEASE_AUTOMATION_CLIENT_ID` / `RELEASE_AUTOMATION_APP_PRIVATE_KEY`); the App has contents and pull-requests write on polkadot-sdk
+- GitHub App tokens are used for fine-grained permissions (via `vars.RELEASE_AUTOMATION_CLIENT_ID` / `RELEASE_AUTOMATION_APP_PRIVATE_KEY`); the App has contents and pull-requests write on polkadot-sdk, and needs commit statuses write for the e2e gate verdict and the crates publish record. The key is a secret of the `release` environment (`weekly` for the weekly flows)
 - Workflows run on Parity's custom runners (`parity-default`, `parity-large`)
 - Build container images are dynamically resolved from polkadot-sdk's `.github/env`
 - Binary builds produce SHA256 checksums and GPG signatures
