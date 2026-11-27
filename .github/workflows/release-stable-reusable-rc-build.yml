@@ -451,7 +451,12 @@ jobs:
         merge-multiple: true
 
     - name: Install rpmbuild
-      run: sudo apt-get update && sudo apt-get install -y rpm
+      run: |
+        sudo apt-get update && sudo apt-get install -y rpm
+        # rpm 6 builds packages in the v6 format by default, whose signatures
+        # rpm 4.x clients (RHEL 8/9, Amazon Linux 2023, Fedora up to 42) cannot
+        # read. Keep building v4 packages; older rpm ignores the macro.
+        echo '%_rpmformat 4' >> "$HOME/.rpmmacros"
 
     - name: Set up Ruby
       uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1.327.0

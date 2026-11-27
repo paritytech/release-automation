@@ -68,6 +68,7 @@ production repo.
 - Workflows run on Parity's custom runners (`parity-default`, `parity-large`)
 - Build container images are dynamically resolved from polkadot-sdk's `.github/env`
 - Binary builds produce SHA256 checksums and GPG signatures
+- The polkadot RPM is built in the rpm v4 format and must carry a v4 header signature: rpm 4.x clients (RHEL 8/9, Amazon Linux 2023, Fedora up to 42) treat a package with only an rpm 6 (v6) signature as unsigned
 - Runtime builds use `srtool` for deterministic, reproducible compilation
 
 ## Binaries Built

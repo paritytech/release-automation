@@ -220,7 +220,15 @@ jobs:
               exit 1
             fi
 
-            rpm --addsign "$rpmname"
+            # rpm 4.x clients (RHEL 8/9, Amazon Linux 2023, Fedora up to 42) only
+            # read the v4 header signature. rpm 6 leaves it out of packages in
+            # the v6 format unless asked with --rpmv4. Older rpmsign has no such
+            # switch and always writes it.
+            sign_args=(--addsign)
+            if rpmsign --help 2>&1 | grep -q -- '--rpmv4'; then
+              sign_args+=(--rpmv4)
+            fi
+            rpmsign "${sign_args[@]}" "$rpmname"
 
             # Verify against the signing key rpm was told to use. An unsigned
             # package reports "digests OK" without "signatures", so this single
@@ -230,12 +238,25 @@ jobs:
             verify_db="$RUNNER_TEMP/rpm-verify-db"
             rm -rf "$verify_db"
             mkdir -p "$verify_db"
-            gpg --export --armor "$(rpm --eval '%{_gpg_name}')" > "$RUNNER_TEMP/signing-key.asc"
+            # export-minimal passes rpm only the self-signature gpg treats as
+            # current. The public copy of the key carries several self-signatures
+            # with the same creation time and different expiry dates, and rpm 6
+            # would otherwise pick an expired one and report the key as expired.
+            gpg --export --export-options export-minimal --armor "$(rpm --eval '%{_gpg_name}')" > "$RUNNER_TEMP/signing-key.asc"
             rpm --dbpath "$verify_db" --initdb
             rpm --dbpath "$verify_db" --import "$RUNNER_TEMP/signing-key.asc"
             rpm --dbpath "$verify_db" --checksig -v "$rpmname" || true
             if ! rpm --dbpath "$verify_db" --checksig "$rpmname" | grep -q "signatures OK"; then
               echo "Error: $rpmname is unsigned or its signature does not verify"
+              exit 1
+            fi
+
+            # rpm 6 reports "signatures OK" for a package that only has a v6
+            # signature, which rpm 4.x clients see as unsigned, so require the
+            # v4 header signature as well.
+            v4_signature=$(rpm --dbpath "$verify_db" -qp --qf '%{RSAHEADER:pgpsig}' "$rpmname")
+            if [[ -z "$v4_signature" || "$v4_signature" == "(none)" ]]; then
+              echo "Error: $rpmname has no v4 header signature, rpm 4.x clients would treat it as unsigned"
               exit 1
             fi
 
